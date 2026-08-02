@@ -57,7 +57,7 @@ From GitHub on purpose — this package evolves with its hosts.
 ## Test
 
 ```sh
-npm test   # node --test, zero dependencies
+npm test   # node --test, zero dependencies — and REAL parts, not stubs
 ```
 
-The language and door laws are pinned here; a host that injects a real SQL engine should run the same filter cases through both backends (see `test/filter.test.js`) to pin cross-engine parity.
+The suite runs on the genuine article wherever one exists dependency-free: the filter conformance table runs through the JS matcher AND a REAL SQLite (node:sqlite, JSON1); the statics engine runs on a REAL filesystem with a REAL digest of the actual bytes; the browser transport cases answer with real Response objects. The one remaining test double is the kv chain-store — a documented CONTRACT stand-in whose real implementation belongs to the host (akao pins it against real IndexedDB in its conformance tier).

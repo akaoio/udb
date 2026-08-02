@@ -1,10 +1,12 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { match, compile } from "../src/filter.js"
+import { sqlite } from "./real.js"
 
-// The matcher side of the conformance table. The host that injects a real
-// SQL engine runs the SAME cases through compile() against it — here we pin
-// the language; there they pin the parity.
+// ONE table of cases, TWO real backends, in THIS repo: every case runs
+// through match() (the JS matcher) and through compile() against a REAL
+// SQLite (node:sqlite, JSON1) — the same engine family the browser uses.
+// If the two meanings ever drift, this file goes red without any host.
 const DOCS = {
     a: { kind: "swap", amount: 5, ok: true, meta: { priority: "high" }, tag: null },
     b: { kind: "swap", amount: 0.5, ok: false, meta: { priority: "low" } },
@@ -33,13 +35,27 @@ const CASES = [
     ["AND combinator explicit", { "&": [{ kind: "swap" }, { ok: true }] }, ["a"]]
 ]
 
-for (const [name, filter, expected] of CASES)
+const db = sqlite()
+await db.exec('CREATE TABLE "c_docs" (_id TEXT PRIMARY KEY, doc TEXT NOT NULL)')
+for (const [id, doc] of Object.entries(DOCS)) await db.run('INSERT INTO "c_docs" (_id, doc) VALUES (?, ?)', [id, JSON.stringify(doc)])
+
+for (const [name, filter, expected] of CASES) {
     test(`match: ${name}`, () => {
         const got = Object.entries(DOCS)
             .filter(([, doc]) => match(doc, filter))
             .map(([id]) => id)
         assert.deepEqual(got, expected)
     })
+
+    test(`REAL SQLite agrees: ${name}`, async () => {
+        const { where, params } = compile(filter)
+        const rows = await db.all(`SELECT _id FROM "c_docs" WHERE ${where} ORDER BY _id`, params)
+        assert.deepEqual(
+            rows.map((row) => row._id),
+            expected
+        )
+    })
+}
 
 test("compile: booleans bind as 0/1 — how SQLite stores JSON booleans", () => {
     const { where, params } = compile({ ok: true })

@@ -1,11 +1,17 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { statics } from "../src/statics.js"
-import { memoryDriver, fakehash, encode } from "./stubs.js"
+import { diskRoot, diskDriver, contentHash, encode } from "./real.js"
 
-function makeEngine({ files = {}, load = async () => undefined, browser = false } = {}) {
-    const driver = memoryDriver()
-    for (const [key, value] of Object.entries(files)) driver._files.set(key, typeof value === "string" ? encode(value) : value)
+// The at-rest tier is a REAL filesystem here: real files under a throwaway
+// root, real ENOENT, real directory listings — and the content address is a
+// real SHA-1 digest of the actual bytes. The only simulated transport is the
+// browser's fetch in the browser-mode cases, answered with REAL Response
+// objects (the relative-URL contract makes genuine HTTP a browser-tier job —
+// the host pins that end to end against a live server).
+function makeEngine({ browser = false, load = async () => undefined } = {}) {
+    const root = diskRoot()
+    const driver = diskDriver(root)
     const calls = { fresh: 0, stale: 0 }
     const engine = statics({
         load: async (path, options = {}) => {
@@ -14,41 +20,39 @@ function makeEngine({ files = {}, load = async () => undefined, browser = false 
             return load(path, options)
         },
         driver,
-        infohash: fakehash,
+        infohash: contentHash,
         browser,
         dev: false
     })
     return { engine, driver, calls }
 }
 
-async function withHash(body) {
-    return { body, hash: (await fakehash(encode(body))).v1 }
+async function deploy(driver, name, body) {
+    const bytes = encode(body)
+    await driver.writeBytes(["statics", `${name}.json`], bytes)
+    await driver.writeBytes(["statics", `${name}.hash`], encode((await contentHash(bytes, `${name}.json`)).v1))
 }
 
 test("an at-rest body proves itself and serves without the body tiers", async () => {
-    const { body, hash } = await withHash('{"v":1}')
-    const { engine, calls } = makeEngine({ files: { "statics/a.json": body, "statics/a.hash": hash } })
+    const { engine, driver, calls } = makeEngine()
+    await deploy(driver, "a", '{"v":1}')
     assert.deepEqual(await engine.$prod(["statics", "a.json"]), { v: 1 })
     assert.deepEqual(await engine.$prod(["statics", "a.json"]), { v: 1 }) // RAM memo
     assert.equal(calls.fresh + calls.stale, 0)
 })
 
 test("tampered at-rest bytes fail their own proof and are refetched fresh", async () => {
-    const { hash } = await withHash('{"v":1}')
-    const { engine, calls } = makeEngine({
-        files: { "statics/b.json": '{"v":666}', "statics/b.hash": hash },
-        load: async (_p, { fresh }) => (fresh ? { v: 2 } : undefined)
-    })
+    const { engine, driver, calls } = makeEngine({ load: async (_p, { fresh }) => (fresh ? { v: 2 } : undefined) })
+    await deploy(driver, "b", '{"v":1}')
+    await driver.writeBytes(["statics", "b.json"], encode('{"v":666}')) // corrupt the body, keep the hash
     assert.deepEqual(await engine.$prod(["statics", "b.json"]), { v: 2 })
     assert.equal(calls.fresh, 1)
 })
 
 test("a stale fallback is served for offline UX but never trusted as validated", async () => {
     let freshBody
-    const { engine, calls } = makeEngine({
-        files: { "statics/c.hash": "deadbeef" },
-        load: async (_p, { fresh }) => (fresh ? freshBody : { v: 1 })
-    })
+    const { engine, driver, calls } = makeEngine({ load: async (_p, { fresh }) => (fresh ? freshBody : { v: 1 }) })
+    await driver.writeBytes(["statics", "c.hash"], encode("a".repeat(40))) // deployed hash, no body anywhere
     assert.deepEqual(await engine.$prod(["statics", "c.json"]), { v: 1 })
     assert.equal(calls.fresh, 1)
     // the memo holds no validated hash — the next pass MUST try fresh again
@@ -58,15 +62,12 @@ test("a stale fallback is served for offline UX but never trusted as validated",
 })
 
 test("on() hears a validated change that landed at rest from outside", async () => {
-    const first = await withHash('{"v":1}')
-    const { engine, driver } = makeEngine({ files: { "statics/d.json": first.body, "statics/d.hash": first.hash } })
+    const { engine, driver } = makeEngine()
+    await deploy(driver, "d", '{"v":1}')
     const deliveries = []
     const off = await engine.on(["statics", "d.json"], (data) => deliveries.push(data?.v))
     assert.deepEqual(deliveries, [1])
-    // a deploy swaps body AND hash on disk — no fetch involved
-    const second = await withHash('{"v":2}')
-    driver._files.set("statics/d.json", encode(second.body))
-    driver._files.set("statics/d.hash", encode(second.hash))
+    await deploy(driver, "d", '{"v":2}') // a REAL deploy: body and hash swapped on disk, no fetch involved
     await engine.$prod(["statics", "d.json"])
     assert.deepEqual(deliveries, [1, 2])
     await engine.$prod(["statics", "d.json"]) // same hash: no redelivery noise
@@ -79,11 +80,10 @@ test("on() rejects a directory path loudly", async () => {
     await assert.rejects(() => engine.on(["statics", "chains"], () => {}), /name one/)
 })
 
-test("map() walks data files only, never the sidecars", async () => {
-    const { body, hash } = await withHash('{"v":3}')
-    const { engine } = makeEngine({
-        files: { "statics/e/x.json": body, "statics/e/x.hash": hash, "statics/e/x.torrent": "d4:infoe" }
-    })
+test("map() walks real directories, data files only, never the sidecars", async () => {
+    const { engine, driver } = makeEngine()
+    await deploy(driver, "e/x", '{"v":3}')
+    await driver.writeBytes(["statics", "e", "x.torrent"], encode("d4:infoe"))
     const seen = []
     const count = await engine.map(["statics"], (value, path) => seen.push([path.join("/"), value.v]))
     assert.equal(count, 1)
@@ -91,24 +91,28 @@ test("map() walks data files only, never the sidecars", async () => {
 })
 
 test("a .hash request answers the current hash directly", async () => {
-    const { engine } = makeEngine({ files: { "statics/f.hash": "cafebabe" } })
+    const { engine, driver } = makeEngine()
+    await driver.writeBytes(["statics", "f.hash"], encode("cafebabe"))
     assert.equal(await engine.$prod(["statics", "f.hash"]), "cafebabe")
 })
 
 test("browser 404 on the hash evicts and falls to a fresh load", async () => {
-    const { engine, driver } = makeEngine({ browser: true, files: { "statics/g.json": '{"v":9}', "statics/g.hash": "stale" } })
+    const { engine, driver } = makeEngine({ browser: true })
+    await driver.writeBytes(["statics", "g.json"], encode('{"v":9}'))
+    await driver.writeBytes(["statics", "g.hash"], encode("stale"))
     const savedFetch = globalThis.fetch
-    globalThis.fetch = async () => ({ ok: false, status: 404 })
+    globalThis.fetch = async () => new Response("Not Found", { status: 404 })
     try {
         assert.equal(await engine.$prod(["statics", "g.json"]), undefined)
-        assert.equal(driver._files.has("statics/g.hash"), false) // orphan sidecar evicted
+        assert.equal(await driver.readBytes(["statics", "g.hash"]), null) // orphan sidecar evicted
     } finally {
         globalThis.fetch = savedFetch
     }
 })
 
 test("browser offline serves what is held, unvalidated", async () => {
-    const { engine } = makeEngine({ browser: true, files: { "statics/h.json": '{"v":4}' }, load: async (_p, { fresh }) => (fresh ? undefined : { v: 4 }) })
+    const { engine, driver } = makeEngine({ browser: true, load: async (_p, { fresh }) => (fresh ? undefined : { v: 4 }) })
+    await driver.writeBytes(["statics", "h.json"], encode('{"v":4}'))
     const savedFetch = globalThis.fetch
     globalThis.fetch = async () => {
         throw new Error("offline")
@@ -120,14 +124,31 @@ test("browser offline serves what is held, unvalidated", async () => {
     }
 })
 
-test("wipe clears RAM everywhere but at-rest only in the browser", async () => {
-    const { body, hash } = await withHash('{"v":5}')
-    const node = makeEngine({ files: { "statics/i.json": body, "statics/i.hash": hash } })
-    await node.engine.$prod(["statics", "i.json"])
-    await node.engine.wipe()
-    assert.equal(node.driver._files.has("statics/i.json"), true) // node build untouched
+test("browser validates against the REAL served hash body", async () => {
+    // The full browser fast-path with a faithful transport: fetch answers
+    // with a real Response carrying the real digest of the real bytes.
+    const { engine, driver } = makeEngine({ browser: true })
+    const bytes = encode('{"v":11}')
+    await driver.writeBytes(["statics", "i.json"], bytes)
+    const digest = (await contentHash(bytes, "i.json")).v1
+    const savedFetch = globalThis.fetch
+    globalThis.fetch = async (url) => (String(url).endsWith("/statics/i.hash") ? new Response(digest, { status: 200 }) : new Response("Not Found", { status: 404 }))
+    try {
+        assert.deepEqual(await engine.$prod(["statics", "i.json"]), { v: 11 })
+    } finally {
+        globalThis.fetch = savedFetch
+    }
+})
 
-    const web = makeEngine({ browser: true, files: { "statics/i.json": body } })
+test("wipe clears RAM everywhere but at-rest only in the browser", async () => {
+    const node = makeEngine()
+    await deploy(node.driver, "j", '{"v":5}')
+    await node.engine.$prod(["statics", "j.json"])
+    await node.engine.wipe()
+    assert.notEqual(await node.driver.readBytes(["statics", "j.json"]), null) // node build untouched
+
+    const web = makeEngine({ browser: true })
+    await web.driver.writeBytes(["statics", "j.json"], encode('{"v":5}'))
     await web.engine.wipe()
-    assert.equal(web.driver._files.has("statics/i.json"), false)
+    assert.equal(await web.driver.readBytes(["statics", "j.json"]), null)
 })

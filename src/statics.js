@@ -168,7 +168,11 @@ export function statics({ load, driver, infohash, browser, dev }) {
                 // is an unhashed asset that simply loads without validation.
                 memo.delete(key)
                 const hashPath = path.with(-1, last.replace(/\.\w+$/, ".hash"))
-                driver.remove?.(hashPath)?.catch?.(() => {})
+                // Awaited: eviction is a statement about what is at rest —
+                // returning while the orphan sidecar still exists made the
+                // outcome racy (a real-disk test caught exactly that; the
+                // in-memory stub had hidden it).
+                await driver.remove(hashPath).catch(() => {})
                 const data = await load(path, { fresh: true, quiet: true })
                 if (data !== undefined) {
                     memo.set(key, { hash: null, data })

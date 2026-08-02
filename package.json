@@ -1,6 +1,6 @@
 {
     "name": "@akaoio/udb",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "The universal data door: one chain grammar over every kind of data \u2014 content-addressed statics, sync local kv, live market mirrors, filterable collections with live queries. Engines are injected; the door is the law.",
     "type": "module",
     "main": "src/index.js",

@@ -1,16 +1,21 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { createDB, collections, statics } from "../src/index.js"
-import { memoryStore, memoryDriver, fakehash, encode } from "./stubs.js"
+import { memoryStore } from "./stubs.js"
+import { sqlite, diskRoot, diskDriver, contentHash, encode } from "./real.js"
 
-function makeDB() {
+// The door wired to REAL parts wherever a real part exists dependency-free:
+// statics on a real filesystem with a real digest, the browser collection
+// engine on a real SQLite (node:sqlite). The kv chain-store remains the one
+// documented CONTRACT double — its real implementation belongs to the host
+// (akao pins it against real IndexedDB in its conformance tier).
+function makeDB({ browser = false } = {}) {
     const lives = memoryStore()
-    const collectionsKv = memoryStore()
-    const driver = memoryDriver()
+    const driver = diskDriver(diskRoot())
     const DB = createDB({
-        statics: statics({ load: async () => undefined, driver, infohash: fakehash, browser: false, dev: false }),
+        statics: statics({ load: async () => undefined, driver, infohash: contentHash, browser: false, dev: false }),
         lives: { store: lives },
-        collections: collections({ browser: false, kv: async () => collectionsKv })
+        collections: collections({ browser, sql: async () => sqlite(), kv: async () => memoryStore() })
     })
     return { DB, lives, driver }
 }
@@ -59,43 +64,52 @@ test("local: peek/put/del round-trip (memo-only without localStorage)", () => {
     assert.equal(DB.get("local").get("__udb_test").peek(), undefined)
 })
 
-test("collections: CRUD + find ordered by _id", async () => {
-    const { DB } = makeDB()
-    assert.throws(() => DB.get("Swaps!"), /not a valid collection name/)
-    assert.throws(() => DB.get("c1").get("x").put(42), /documents/)
-    await DB.get("c1").get("b").put({ n: 2 })
-    await DB.get("c1").get("a").put({ n: 1 })
-    assert.deepEqual(
-        (await DB.get("c1").find({})).map((d) => d.n),
-        [1, 2]
-    )
-    assert.deepEqual(await DB.get("c1").get("a").once(), { n: 1 })
-    await DB.get("c1").get("a").del()
-    assert.equal(await DB.get("c1").get("a").once(), undefined)
-})
+// ── The collection contract, on BOTH engines ────────────────────────────────
+// One body of assertions; the browser run hits a REAL SQLite, the node run
+// hits the kv contract double. Parity here is the same law the filter
+// conformance pins — engines differ, meaning may not.
+for (const [label, browser] of [
+    ["REAL SQLite engine", true],
+    ["kv contract engine", false]
+]) {
+    test(`collections (${label}): CRUD + find ordered by _id`, async () => {
+        const { DB } = makeDB({ browser })
+        assert.throws(() => DB.get("Swaps!"), /not a valid collection name/)
+        assert.throws(() => DB.get("c1").get("x").put(42), /documents/)
+        await DB.get("c1").get("b").put({ n: 2 })
+        await DB.get("c1").get("a").put({ n: 1 })
+        assert.deepEqual(
+            (await DB.get("c1").find({})).map((d) => d.n),
+            [1, 2]
+        )
+        assert.deepEqual(await DB.get("c1").get("a").once(), { n: 1 })
+        await DB.get("c1").get("a").del()
+        assert.equal(await DB.get("c1").get("a").once(), undefined)
+    })
 
-test("collections: find().on() delivers now and after every settled write", async () => {
-    const { DB } = makeDB()
-    await DB.get("c2").get("a").put({ kind: "swap", n: 1 })
-    const deliveries = []
-    const off = await DB.get("c2")
-        .find({ kind: "swap" })
-        .on((docs) => deliveries.push(docs.map((d) => d.n)))
-    assert.deepEqual(deliveries, [[1]])
-    await DB.get("c2").get("b").put({ kind: "swap", n: 2 })
-    assert.deepEqual(deliveries.at(-1), [1, 2])
-    await DB.get("c2").get("a").del()
-    assert.deepEqual(deliveries.at(-1), [2])
-    off()
-    await DB.get("c2").get("c").put({ kind: "swap", n: 3 })
-    assert.deepEqual(deliveries.at(-1), [2]) // unsubscribed
-})
+    test(`collections (${label}): find().on() delivers now and after every settled write`, async () => {
+        const { DB } = makeDB({ browser })
+        await DB.get("c2").get("a").put({ kind: "swap", n: 1 })
+        const deliveries = []
+        const off = await DB.get("c2")
+            .find({ kind: "swap" })
+            .on((docs) => deliveries.push(docs.map((d) => d.n)))
+        assert.deepEqual(deliveries, [[1]])
+        await DB.get("c2").get("b").put({ kind: "swap", n: 2 })
+        assert.deepEqual(deliveries.at(-1), [1, 2])
+        await DB.get("c2").get("a").del()
+        assert.deepEqual(deliveries.at(-1), [2])
+        off()
+        await DB.get("c2").get("c").put({ kind: "swap", n: 3 })
+        assert.deepEqual(deliveries.at(-1), [2]) // unsubscribed
+    })
+}
 
-test("statics through the door: mount re-prefixes, engine serves validated bytes", async () => {
+test("statics through the door: mount re-prefixes, engine serves validated bytes off a real disk", async () => {
     const { DB, driver } = makeDB()
     const body = encode(JSON.stringify({ v: 7 }))
-    driver._files.set("statics/x.json", body)
-    driver._files.set("statics/x.hash", encode((await fakehash(body)).v1))
+    await driver.writeBytes(["statics", "x.json"], body)
+    await driver.writeBytes(["statics", "x.hash"], encode((await contentHash(body, "x.json")).v1))
     assert.deepEqual(await DB.get("statics").get("x.json").once(), { v: 7 })
 })
 
