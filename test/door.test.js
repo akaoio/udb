@@ -58,10 +58,10 @@ test("lives: without a registered transport, put still persists", async () => {
 
 test("local: peek/put/del round-trip (memo-only without localStorage)", () => {
     const { DB } = makeDB()
-    DB.get("local").get("__udb_test").put({ id: 9 })
-    assert.deepEqual(DB.get("local").get("__udb_test").peek(), { id: 9 })
-    DB.get("local").get("__udb_test").del()
-    assert.equal(DB.get("local").get("__udb_test").peek(), undefined)
+    DB.get("local").get("__UDB_test").put({ id: 9 })
+    assert.deepEqual(DB.get("local").get("__UDB_test").peek(), { id: 9 })
+    DB.get("local").get("__UDB_test").del()
+    assert.equal(DB.get("local").get("__UDB_test").peek(), undefined)
 })
 
 // ── The collection contract, on BOTH engines ────────────────────────────────

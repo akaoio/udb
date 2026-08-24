@@ -1,4 +1,4 @@
-// Environment detection — udb's own, so the package imports nothing from its
+// Environment detection — UDB's own, so the package imports nothing from its
 // host. NODE means a Node.js process; BROWSER covers windows AND workers
 // (both carry location.origin, neither carries process).
 export function detectEnvironment(scope = globalThis) {
