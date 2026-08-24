@@ -1,5 +1,5 @@
 /**
- * udb — the universal data door.
+ * UDB — the universal data door.
  *
  * Devs call DB and only DB; where a datum lives and how it travels is the
  * mount table's business. One grammar for every mount:

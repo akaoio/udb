@@ -27,7 +27,7 @@ One meaning, two backends: `match(doc, filter)` (in-process matcher) and `compil
 
 ## The host injects its engines
 
-udb imports **nothing** from its host. Wire it:
+UDB imports **nothing** from its host. Wire it:
 
 ```js
 import { createDB, statics, collections } from "@akaoio/udb"

@@ -34,7 +34,7 @@ export function sqlite() {
 }
 
 export function diskRoot() {
-    return mkdtempSync(join(tmpdir(), "udb-real-"))
+    return mkdtempSync(join(tmpdir(), "UDB-real-"))
 }
 
 export function diskDriver(root) {
