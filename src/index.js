@@ -51,7 +51,7 @@ function localKey(path) {
 /**
  * createDB — wire the door to a host's engines.
  *
- *   statics     — engine from statics({ load, driver, infohash, browser, dev })
+ *   statics     — engine from statics({ load, driver, infohash, hashes, metadata, browser, dev })
  *   lives       — { store }: a chain-store (get/put/del/once/on/map + ready)
  *   collections — collectionMount(name) from collections({ browser, sql, kv })
  *   local       — optional engine override; defaults to the built-in local.js

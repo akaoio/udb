@@ -12,12 +12,27 @@ import { sqlite, diskRoot, diskDriver, contentHash, encode } from "./real.js"
 function makeDB({ browser = false } = {}) {
     const lives = memoryStore()
     const driver = diskDriver(diskRoot())
+    // `hashes` and `metadata` are the two answers the HOST owes the statics
+    // engine. Here the host is the smallest honest one: a table of what the
+    // origin publishes, and a host that names no sidecars.
+    const published = new Map()
     const DB = createDB({
-        statics: statics({ load: async () => undefined, driver, infohash: contentHash, browser: false, dev: false }),
+        statics: statics({
+            load: async () => undefined,
+            driver,
+            infohash: contentHash,
+            hashes: async (path) => {
+                const hash = published.get(path.join("/"))
+                return hash ? { ok: true, status: 200, hash } : { ok: false, status: 404, hash: undefined }
+            },
+            metadata: () => false,
+            browser: false,
+            dev: false
+        }),
         lives: { store: lives },
         collections: collections({ browser, sql: async () => sqlite(), kv: async () => memoryStore() })
     })
-    return { DB, lives, driver }
+    return { DB, lives, driver, published }
 }
 
 test("grammar: array key is sugar for chaining", () => {
@@ -106,10 +121,10 @@ for (const [label, browser] of [
 }
 
 test("statics through the door: mount re-prefixes, engine serves validated bytes off a real disk", async () => {
-    const { DB, driver } = makeDB()
+    const { DB, driver, published } = makeDB()
     const body = encode(JSON.stringify({ v: 7 }))
     await driver.writeBytes(["statics", "x.json"], body)
-    await driver.writeBytes(["statics", "x.hash"], encode((await contentHash(body, "x.json")).v1))
+    published.set("statics/x.json", (await contentHash(body, "x.json")).v1)
     assert.deepEqual(await DB.get("statics").get("x.json").once(), { v: 7 })
 })
 
