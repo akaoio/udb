@@ -37,6 +37,8 @@ const DB = createDB({
         load,        // (path, {fresh, quiet}) → data — your tiered loader (HTTP/disk/P2P)
         driver,      // { readBytes, writeBytes, remove, entries } — OPFS, node:fs, anything
         infohash,    // (bytes, name) → { v1 } — the content address your build publishes
+        hashes,      // (path) → { ok, status, hash } — the hash your ORIGIN states for that path
+        metadata,    // (name) → true when the file describes others (your sidecars)
         browser, dev
     }),
     lives: { store },                      // a chain-store (get/put/del/once/on/map + ready)

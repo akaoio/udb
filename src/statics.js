@@ -2,7 +2,7 @@
  * The statics engine — ONE at-rest copy, content-addressed.
  *
  * The bytes ARE the store: OPFS in a browser, the build directory on a node
- * — the same bytes whose BEP3 infohash is the deployed .hash (and, for hosts
+ * — the same bytes whose BEP3 infohash the host publishes (and, for hosts
  * that seed, the torrent identity). A cached body validates ITSELF:
  * recompute its infohash and compare with the deployed hash. No persistent
  * memo exists to lie about a body it does not describe — the stale-body
@@ -15,7 +15,35 @@
  *   load(path, {fresh, quiet}) — the host's tiered loader (HTTP/disk/P2P)
  *   driver                     — readBytes/writeBytes/remove/entries
  *   infohash(bytes, name)      — → { v1 } content address
+ *   hashes(path)               — → { ok, status, hash }: the DEPLOYED hash
+ *   metadata(name)             — → true for a file that describes others
  *   browser, dev               — environment flags
+ *
+ * ── Why `hashes` is injected rather than fetched here ────────────────────
+ *
+ * This engine used to BUILD the address of the deployed hash itself: swap the
+ * data file's extension for `.hash` and fetch that path. That spelling is the
+ * host's, not this engine's, and encoding it here made the engine dictate how
+ * many round trips a read costs — one probe per file, forever, because a
+ * per-file URL cannot be batched.
+ *
+ * The host now answers "what hash does the origin state for this path", by
+ * whatever means it publishes — a sidecar per file, one manifest per root, a
+ * header. The three ANSWERS are what this engine actually reasons about, and
+ * they stay right here:
+ *
+ *   { ok: true, status: 200, hash }  — the origin states a hash: validate
+ *   { ok: false, status: 404 }       — the origin states NOTHING for this
+ *                                      path: it left the build, or it is an
+ *                                      unhashed asset. Serve without
+ *                                      validation, hold no validated memo.
+ *   { ok: false, status: null }      — we cannot know (offline): serve what
+ *                                      we hold, still unvalidated.
+ *
+ * `metadata` exists for the same reason: `map()` used to skip names ending in
+ * `.hash`/`.torrent` — one host's vocabulary, hardcoded in the engine, wrong
+ * for any host that names its sidecars differently and wrong for that host
+ * too the day it renames one.
  *
  * Reactivity is realm-local by design: on() fires when THIS realm lands
  * fresh data at that path — including bytes that arrived at rest from
@@ -24,7 +52,12 @@
  */
 import { walk } from "./walk.js"
 
-export function statics({ load, driver, infohash, browser, dev }) {
+export function statics({ load, driver, infohash, hashes, metadata, browser, dev }) {
+    // Refused loudly rather than defaulted: a default would be this engine
+    // guessing one host's spelling again, and the guess would be invisible —
+    // every read would just quietly stop validating.
+    if (typeof hashes !== "function") throw new Error("statics: cần hàm hashes(path) — engine không tự đặt ra địa chỉ của hash đã deploy")
+    if (typeof metadata !== "function") throw new Error("statics: cần hàm metadata(name) — engine không biết host gọi sidecar của mình là gì")
     // path.join("/") → { hash, data }. hash === null means "held but not
     // validated against a deployed hash" (offline serve, unhashed asset) —
     // such an entry never satisfies the fast path, so the next pass
@@ -53,29 +86,22 @@ export function statics({ load, driver, infohash, browser, dev }) {
 
     // The deployed hash for a data path — WITH transport status, because 404
     // (the file left the build) and offline (we cannot know) demand opposite
-    // reactions: evict versus serve-what-we-hold.
+    // reactions: serve-unvalidated-and-forget versus serve-what-we-hold.
+    //
+    // The host answers; this wrapper only refuses to let a throwing or
+    // malformed answer look like a verdict. An engine that treated "the
+    // resolver crashed" as 404 would quietly retire validation for every
+    // file — the failure this whole tier exists to make impossible.
     async function currentHash(path) {
-        const last = path.at(-1) ?? ""
-        const hashPath = path.with(-1, last.replace(/\.\w+$/, ".hash"))
-        if (!browser) {
-            // A node reads its own build; a raw driver read so a missing
-            // sidecar can never wander off into the loader's network tiers.
-            let bytes = null
-            try {
-                bytes = await driver.readBytes(hashPath)
-            } catch {}
-            if (bytes?.length) return { ok: true, status: 200, hash: new TextDecoder().decode(bytes).trim() }
-            // Missing on disk is not an eviction verdict on node — the build
-            // directory is the source of truth, not a cache.
-            return { ok: false, status: null, hash: undefined }
-        }
+        let answer
         try {
-            const response = await fetch(`/${hashPath.filter(Boolean).join("/")}`)
-            if (response.ok) return { ok: true, status: response.status, hash: (await response.text()).trim() }
-            return { ok: false, status: response.status, hash: undefined }
+            answer = await hashes(path)
         } catch {
             return { ok: false, status: null, hash: undefined }
         }
+        if (!answer || typeof answer !== "object") return { ok: false, status: null, hash: undefined }
+        if (answer.ok && typeof answer.hash === "string" && answer.hash) return { ok: true, status: answer.status ?? 200, hash: answer.hash.trim() }
+        return { ok: false, status: answer.status ?? null, hash: undefined }
     }
 
     // At-rest bytes, or null. Never throws, never touches the network.
@@ -112,11 +138,11 @@ export function statics({ load, driver, infohash, browser, dev }) {
         async $prod(path) {
             const last = path.at(-1) ?? ""
 
-            // A .hash request IS the current-hash question — answer directly.
-            if (last.endsWith(".hash")) {
-                const { hash } = await currentHash(path.with(-1, last.replace(/\.hash$/, ".json")))
-                return hash
-            }
+            // A `.hash` path used to be answered here as "the current-hash
+            // question about the neighbouring `.json`" — the engine spelling
+            // out one host's sidecar convention (gone). A host that wants to
+            // ask what hash the origin states for a path calls its own
+            // resolver; it owns that spelling and this engine does not.
 
             const key = keyOf(path)
             const { ok, status, hash } = await currentHash(path)
@@ -167,12 +193,12 @@ export function statics({ load, driver, infohash, browser, dev }) {
                 // load sees the body 404 and evicts the at-rest copy — or it
                 // is an unhashed asset that simply loads without validation.
                 memo.delete(key)
-                const hashPath = path.with(-1, last.replace(/\.\w+$/, ".hash"))
-                // Awaited: eviction is a statement about what is at rest —
-                // returning while the orphan sidecar still exists made the
-                // outcome racy (a real-disk test caught exactly that; the
-                // in-memory stub had hidden it).
-                await driver.remove(hashPath).catch(() => {})
+                // The orphan sidecar this branch used to delete does not
+                // exist any more: a host that publishes hashes per FILE was
+                // the only shape that could leave one behind, and evicting it
+                // meant this engine writing the host's spelling (gone). What
+                // is at rest that must go is the BODY, and the loader's fresh
+                // pass below evicts it on its own 404.
                 const data = await load(path, { fresh: true, quiet: true })
                 if (data !== undefined) {
                     memo.set(key, { hash: null, data })
@@ -220,7 +246,12 @@ export function statics({ load, driver, infohash, browser, dev }) {
             let count = 0
             await walk(driver, path, async (child) => {
                 const name = child.at(-1)
-                if (name.endsWith(".hash") || name.endsWith(".torrent")) return
+                // The host says which names describe other files. This used
+                // to be a suffix test written here — one host's vocabulary
+                // frozen into the engine, and stale the day that host renamed
+                // a sidecar, with the only symptom being metadata handed to a
+                // caller as if it were data.
+                if (metadata(name)) return
                 const held = memo.get(keyOf(child))
                 let value = held?.data
                 if (value === undefined) {
