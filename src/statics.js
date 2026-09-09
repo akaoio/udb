@@ -4,12 +4,24 @@
  * The bytes ARE the store: OPFS in a browser, the build directory on a node
  * — the same bytes whose BEP3 infohash the host publishes (and, for hosts
  * that seed, the torrent identity). A cached body validates ITSELF:
- * recompute its infohash and compare with the deployed hash. No persistent
- * memo exists to lie about a body it does not describe — the stale-body
- * poisoning class dies by construction.
+ * recompute its infohash and compare with the deployed hash.
  *
- * Tiers: RAM memo (per realm, hash-keyed) → at-rest bytes (self-validating)
- * → the host's loader (which writes the at-rest bytes as it lands).
+ * Tiers: RAM memo (hash-confirmed) → at-rest bytes (self-validating) → the
+ * host's loader (which writes the at-rest bytes as it lands).
+ *
+ * ── The memo answers a read ONLY when a deployed hash confirms it ────────
+ *
+ * That is the invariant, and it is why no cached body can lie about a body
+ * it does not describe. It reads like a restatement of the tier order; it is
+ * not, because the order alone does not give it. A memo entry records what
+ * some past moment proved about some store, and the engine holds nothing
+ * saying either is still the one being read. Only a hash asked NOW says
+ * that, so a branch holding no such hash must read the store, not the copy.
+ *
+ * The claim used to stand here as true "by construction", and it was not:
+ * the offline branch — the one branch with no hash to compare — read the
+ * memo first. akao #705 is the bill, measured 2026-09-09. The branch itself
+ * carries what was read and why the other two never showed it.
  *
  * Everything environment-specific is INJECTED:
  *   load(path, {fresh, quiet}) — the host's tiered loader (HTTP/disk/P2P)
@@ -58,10 +70,14 @@ export function statics({ load, driver, infohash, hashes, metadata, browser, dev
     // every read would just quietly stop validating.
     if (typeof hashes !== "function") throw new Error("statics: cần hàm hashes(path) — engine không tự đặt ra địa chỉ của hash đã deploy")
     if (typeof metadata !== "function") throw new Error("statics: cần hàm metadata(name) — engine không biết host gọi sidecar của mình là gì")
-    // path.join("/") → { hash, data }. hash === null means "held but not
-    // validated against a deployed hash" (offline serve, unhashed asset) —
-    // such an entry never satisfies the fast path, so the next pass
-    // revalidates.
+    // path.join("/") → { hash, data }. A `hash` is the deployed hash this
+    // body was confirmed against, and only an entry whose hash equals the one
+    // asked for NOW may answer a read.
+    //
+    // hash === null means "the last body the LOADER handed us, confirmed by
+    // nothing". Such an entry answers no read while any tier below can still
+    // speak; it exists so a realm holding nothing at rest and reaching no
+    // network serves something rather than undefined.
     const memo = new Map()
     const listeners = new Map()
 
@@ -207,16 +223,47 @@ export function statics({ load, driver, infohash, hashes, metadata, browser, dev
                 return data
             }
 
-            // Offline: serve what we hold — cache first, then the at-rest
-            // tiers. Unvalidated by definition; memo stays hash-null.
-            const held = memo.get(key)
-            if (held) return held.data
+            // Offline: we cannot know what the origin states, so nothing this
+            // branch returns is validated. The ORDER is the whole of the
+            // correctness — the STORE answers before any copy of it does.
+            //
+            // This branch used to read the memo first, and that was the one
+            // door left open to the poisoning class the tier above closes.
+            // The two branches above are safe by construction and not by
+            // care: `ok` compares the held hash against the deployed one, so
+            // a body from a different store simply misses; 404 evicts. Here
+            // there is no hash to compare with, so a memo-first read hands
+            // back a body with NOTHING asserting it still describes the store
+            // being read. Measured 2026-09-09 (akao #705): a host that points
+            // its driver at a second build tree within one realm — a node
+            // suite staging roots, a builder walking site after site — read
+            // the first tree's bytes for every path the second tree also has.
+            // Not an exotic input: it is what "one engine, one realm, one
+            // store" quietly assumed, and no injection states.
+            //
+            // At-rest bytes cost a read the memo did not, and that is the
+            // right price on the degraded path: this is not the steady state,
+            // which is the validated fast path above.
+            const bytes = await atRest(path)
+            // No memo write here on purpose: an unvalidated entry is exactly
+            // what this branch stopped trusting, so holding one would buy the
+            // next pass nothing — it would read the store again regardless —
+            // and would cost the invariant that `hash: null` means "the last
+            // thing the LOADER said", nothing else.
+            if (bytes) return parse(bytes)
+
             const data = await load(path, { quiet: true })
             if (data !== undefined) {
                 memo.set(key, { hash: null, data })
                 notify(path, data) // first sight in this realm counts as a landing
+                return data
             }
-            return data
+
+            // Nothing at rest and nothing the loader can reach. The last body
+            // this realm held is all that is left, and serving it is the
+            // offline promise — held last, where it can only ever beat
+            // `undefined`.
+            return memo.get(key)?.data
         },
 
         // Realm-local reactivity: initial value with once() semantics, then
@@ -252,13 +299,19 @@ export function statics({ load, driver, infohash, hashes, metadata, browser, dev
                 // a sidecar, with the only symptom being metadata handed to a
                 // caller as if it were data.
                 if (metadata(name)) return
-                const held = memo.get(keyOf(child))
-                let value = held?.data
-                if (value === undefined) {
-                    const bytes = await atRest(child)
-                    if (!bytes) return
-                    value = parse(bytes)
-                }
+                // The bytes under the walked name, never a memo entry. walk()
+                // enumerates through the DRIVER, so every name reached here
+                // exists at rest and the memo can only ever shadow it — it can
+                // never add a file to the walk. Shadowing is the whole risk: a
+                // memo entry proved itself against a hash asked at some past
+                // moment, and this walk holds no hash to re-ask with, so it
+                // cannot tell an entry that still describes this store from
+                // one describing a store the host has since moved off (#705).
+                // The saving given up was small and unreliable anyway — only
+                // for files some earlier once() happened to touch.
+                const bytes = await atRest(child)
+                if (!bytes) return
+                const value = parse(bytes)
                 await callback(value, child)
                 count++
             })

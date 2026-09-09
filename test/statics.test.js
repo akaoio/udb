@@ -150,6 +150,96 @@ test("offline serves what is held, unvalidated", async () => {
     assert.deepEqual(await engine.$prod(["statics", "h.json"]), { v: 4 })
 })
 
+// ── One engine, a store that MOVES under it (akao #705) ─────────────────
+//
+// The engine is handed a driver, a loader and a hash resolver; the STORE
+// those address is the host's, and a host may repoint it inside one realm —
+// a node suite staging build roots, a builder walking site after site. The
+// engine is told nothing when that happens, so anything it remembers has to
+// re-earn the right to answer.
+//
+// `ok` and 404 are safe by construction and were never the question: `ok`
+// compares the held hash against the deployed one, so another store's body
+// simply misses, and 404 evicts. The tests below pin the third answer, where
+// there is no hash to compare with and only the tier ORDER decides.
+function movingEngine({ trees, load, hashes }) {
+    const roots = Object.fromEntries(trees.map((tree) => [tree, diskRoot()]))
+    const state = { tree: trees[0] }
+    const at = (tree) => diskDriver(roots[tree])
+    const driver = {
+        readBytes: (path) => at(state.tree).readBytes(path),
+        writeBytes: (path, bytes) => at(state.tree).writeBytes(path, bytes),
+        remove: (path) => at(state.tree).remove(path),
+        entries: (path) => at(state.tree).entries(path)
+    }
+    const engine = statics({
+        // The host's tiered loader, in the shape akao's FS.load really has:
+        // it can reach the at-rest bytes itself. That detail is what makes
+        // this a reproduction rather than a different bug — with a loader
+        // that answers nothing, the offline branch memoized nothing and the
+        // stale read could not even occur.
+        load:
+            load ??
+            (async (path) => {
+                const bytes = await driver.readBytes(path)
+                return bytes?.length ? JSON.parse(new TextDecoder().decode(bytes)) : undefined
+            }),
+        driver,
+        infohash: contentHash,
+        hashes: hashes ?? (async () => ({ ok: false, status: null, hash: undefined })),
+        metadata: (name) => name === "_.torrent" || name === "_.hashes.json",
+        browser: false,
+        dev: false
+    })
+    return { engine, driver, at, state }
+}
+
+test("offline reads the store, never a memo describing a store since moved", async () => {
+    const { engine, at, state } = movingEngine({ trees: ["A", "B"] })
+    for (const tree of ["A", "B"]) await at(tree).writeBytes(["statics", "x.json"], encode(JSON.stringify({ tree })))
+
+    state.tree = "A"
+    assert.deepEqual(await engine.$prod(["statics", "x.json"]), { tree: "A" })
+    state.tree = "B"
+    // Before the fix this answered { tree: "A" }: the offline branch read the
+    // memo first, and no hash existed to notice the body was another store's.
+    assert.deepEqual(await engine.$prod(["statics", "x.json"]), { tree: "B" })
+})
+
+test("map() reads the store's bytes, never a memo describing a store since moved", async () => {
+    const { engine, at, state } = movingEngine({ trees: ["A", "B"] })
+    for (const tree of ["A", "B"]) await at(tree).writeBytes(["statics", "x.json"], encode(JSON.stringify({ tree })))
+
+    state.tree = "A"
+    await engine.$prod(["statics", "x.json"]) // seed the memo from tree A
+    state.tree = "B"
+    const seen = []
+    await engine.map(["statics"], (value) => seen.push(value?.tree))
+    // walk() enumerates through the DRIVER, so a memo can only ever shadow a
+    // name that is really there — which is exactly what it did.
+    assert.deepEqual(seen, ["B"])
+})
+
+test("offline prefers at-rest bytes over the loader's stale answer", async () => {
+    // Both tiers can answer; the order is the assertion. The store wins,
+    // because the loader's stale tier is a copy of some store and the engine
+    // holds nothing saying which.
+    const { engine, at, state } = movingEngine({ trees: ["A"], load: async () => ({ from: "loader" }) })
+    state.tree = "A"
+    await at("A").writeBytes(["statics", "x.json"], encode('{"from":"at-rest"}'))
+    assert.deepEqual(await engine.$prod(["statics", "x.json"]), { from: "at-rest" })
+})
+
+test("offline still serves the last held body when store and loader have nothing", async () => {
+    // The offline promise survives the reordering: the memo answers last,
+    // where it can only ever beat undefined.
+    let reachable = true
+    const { engine } = movingEngine({ trees: ["A"], load: async () => (reachable ? { v: 9 } : undefined) })
+    assert.deepEqual(await engine.$prod(["statics", "x.json"]), { v: 9 })
+    reachable = false
+    assert.deepEqual(await engine.$prod(["statics", "x.json"]), { v: 9 })
+})
+
 test("a resolver that THROWS means 'cannot know', never 'the file is gone'", async () => {
     // The difference decides whether a client keeps serving what it holds or
     // treats every file as unhashed. Reading a crash as 404 would retire
