@@ -19,9 +19,13 @@ import { match, compile } from "./filter.js"
 
 const NAME_RE = /^[a-z][a-z0-9_]*$/
 
-// ── Browser engine: SQLite JSON1 through the injected handle ────────────────
+// ── SQL engine: SQLite JSON1 through the injected handle ───────────────────
+//
+// Named for the ENGINE, not for a realm: since akao #851 this runs in a browser
+// worker AND in a Node process, and a name that said `browserEngine` was a name
+// that lied at the second call site.
 
-function browserEngine(name, sql) {
+function sqlEngine(name, sql) {
     let _db = null
     const ensured = async () => {
         _db ??= (async () => {
@@ -55,9 +59,9 @@ function browserEngine(name, sql) {
     }
 }
 
-// ── Node engine: injected kv + the JS matcher ────────────────────────────────
+// ── KV engine: injected chain-store + the JS matcher ───────────────────────
 
-function nodeEngine(name, kv) {
+function kvEngine(name, kv) {
     let _store = null
     const store = async () => (_store ??= kv())
     return {
@@ -135,18 +139,29 @@ function documentId(path) {
 }
 
 /**
- * collections({ browser, sql, kv }) → collectionMount(name).
- * browser picks the engine; sql/kv are lazy factories the chosen engine
- * memoizes on first use.
+ * collections({ sql, kv }) → collectionMount(name).
+ *
+ * The engine is chosen by WHAT THE HOST INJECTED, not by which realm this is.
+ * It used to take a `browser` flag, and that flag was a claim about the world
+ * ("a browser has SQLite, a Node process does not") which stopped being true the
+ * day a host wired the SQL door into its Node realm too (akao #851: Node had been
+ * keeping documents in one flat JSON file, rewritten whole on every save, while
+ * the same process ran SQLite for its market data). A door that picks an engine
+ * from a realm flag cannot be told otherwise; one that picks the engine it was
+ * GIVEN needs no permission.
+ *
+ * `sql` wins when both are present: it is the engine that evaluates the filter in
+ * the database rather than in this process.
  */
-export function collections({ browser, sql, kv }) {
+export function collections({ sql, kv }) {
     const _mounts = new Map()
 
     return function collectionMount(name) {
         if (!NAME_RE.test(name)) throw new Error(`DB: "${name}" is not a valid collection name (${NAME_RE})`)
         if (_mounts.has(name)) return _mounts.get(name)
 
-        const engine = browser ? browserEngine(name, sql) : nodeEngine(name, kv)
+        if (!sql && !kv) throw new Error(`DB: collection "${name}" has no engine — the host injects sql (a SQLite-like handle factory) or kv (a chain-store factory), and which one it gives is what decides`)
+        const engine = sql ? sqlEngine(name, sql) : kvEngine(name, kv)
         const mount = {
             name: `collection:${name}`,
             verbs: {
