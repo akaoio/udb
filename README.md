@@ -83,6 +83,12 @@ const DB = createDB({
 
 Reactivity (`on`, `find().on`) is **realm-local by design** — cross-realm fan-out is the host's transport concern (`DB.announce`).
 
+### What `infohash` is, and what it is deliberately NOT
+
+A **content address the host chose** — UDB never computes one and never says what it should be. The statics engine calls `infohash(bytes, name)` once, compares the `v1` it gets with the hash the origin published, and that is the whole of its interest: any addressing scheme works as long as the host uses the SAME one when publishing.
+
+It stays a parameter on purpose. akao's is BEP 3 (BitTorrent v1), because akao carries its tree over a swarm and the infohash IS the torrent's identity — a fact about that host's transport, not about a data door. Moving BEP 3 in here would make a universal door drag BitTorrent behind it, and a host that addresses content by SHA-256 would inherit a law it does not use. If a second host ever needs BEP 3 too, its home is a package of its own, not this one.
+
 ## Install
 
 ```sh
