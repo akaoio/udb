@@ -37,6 +37,16 @@ export function remoteDatabase({ dispatch, name = "udb" } = {}) {
         transaction: async () => {
             throw new Error("sqlite: transaction(fn) is not available across a transport — a function cannot be sent to the worker, and emulating it would hold the transaction open across the event loop. Use batch([{ sql, params }, …]), which is the same atomicity as data.")
         },
+        // A prepared statement is a handle INSIDE the database, and a handle does
+        // not cross a transport; a synchronous verb cannot cross one either. Both
+        // refuse by name rather than being emulated into something slower and
+        // subtly different.
+        prepare: () => {
+            throw new Error("sqlite: prepare(sql) is not available across a transport — a statement is a handle inside the database. Send the SQL with each call, or batch([…]) for a loop.")
+        },
+        get sync() {
+            throw new Error("sqlite: there is no synchronous face across a transport — the database is in another thread. Await the async verbs, or batch([…]) for atomicity.")
+        },
         close: () => ask("close", {})
     }
 }

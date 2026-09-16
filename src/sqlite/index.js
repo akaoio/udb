@@ -14,6 +14,17 @@
  *     transaction(fn)      → fn's value; fn gets a SYNCHRONOUS handle
  *     close()
  *
+ * and, on an engine that runs the statements itself (`local: true`), two more
+ * that cannot cross a transport:
+ *
+ *     prepare(sql)         → { run, get, all, finalize }, synchronous
+ *     sync                 → { exec, all, get, run }, synchronous
+ *
+ * Measured on this box, 20 000 writes + 20 000 reads: held statements 115.7 ms,
+ * the same work through the async `sql`-string verbs 251.3 ms (+117 %). A door
+ * without `prepare` makes the slow number the only option for code whose whole
+ * job is a loop — and that code is exactly what a gateway is made of.
+ *
  * ── Why this belongs to UDB and not to each host ───────────────────────────
  *
  * UDB already defines collections and compiles a filter into `WHERE
@@ -59,7 +70,17 @@
 import { NODE } from "../env.js"
 
 /** The verbs every engine answers — exported so a conformance suite needs no list of its own. */
-export const VERBS = ["exec", "all", "get", "run", "batch", "transaction", "close"]
+export const VERBS = ["exec", "all", "get", "run", "batch", "transaction", "prepare", "close"]
+
+/**
+ * What only a LOCAL engine offers, because each is a handle or a call that cannot
+ * cross a transport: a prepared statement, and the synchronous face.
+ *
+ * Declared rather than implied: a caller can ask `handle.local` before reaching
+ * for either, and the remote handle refuses both BY NAME instead of being
+ * emulated into something slower that behaves subtly differently.
+ */
+export const LOCAL_ONLY = ["prepare", "sync"]
 
 /**
  * Open a database with whichever engine this realm can run.
