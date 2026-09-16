@@ -28,10 +28,12 @@ SQL is a language, and it is the same language in every realm — what differs i
 ```js
 import { sqlite } from "@akaoio/udb"
 
-const db = sqlite({ path: "data/chart/positions.db", pragmas: ["journal_mode=WAL", "busy_timeout=5000"] })  // Node
-const db = sqlite({ sqlite3, name: "akao" })      // inside a worker: WASM over OPFS
-const db = sqlite({ dispatch, name: "akao" })     // on a page: a proxy to that worker
+const db = await sqlite({ path: "data/chart/positions.db", pragmas: ["journal_mode=WAL", "busy_timeout=5000"] })  // Node
+const db = await sqlite({ sqlite3, name: "akao" })      // inside a worker: WASM over OPFS
+const db = await sqlite({ dispatch, name: "akao" })     // on a page: a proxy to that worker
 ```
+
+The door is **async** because it imports only the engine this realm can run: `node.js` imports `node:sqlite` at its top level, and a static import of that would take the whole chain down in a browser. A caller that knows its realm can import `nodeDatabase` from `src/sqlite/node.js` directly and keep a synchronous open.
 
 One contract: `exec` `all` `get` `run` `batch(queries)` `transaction(fn)` `close`. Two engines run the statements themselves (`local: true`); the page's handle forwards them.
 

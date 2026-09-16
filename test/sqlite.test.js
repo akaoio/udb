@@ -3,7 +3,10 @@ import assert from "node:assert/strict"
 import { mkdtempSync, rmSync, existsSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { sqlite, VERBS, nodeDatabase, wasmDatabase, remoteDatabase } from "../src/sqlite/index.js"
+import { sqlite, VERBS } from "../src/sqlite/index.js"
+import { nodeDatabase } from "../src/sqlite/node.js"
+import { wasmDatabase } from "../src/sqlite/wasm.js"
+import { remoteDatabase } from "../src/sqlite/remote.js"
 import { statements } from "../src/sqlite/statements.js"
 
 const HERE = mkdtempSync(join(tmpdir(), "udb-sqlite-"))
@@ -154,12 +157,15 @@ test("a closed handle refuses rather than reopening silently", async () => {
 })
 
 test("the door picks the engine from what the realm HAS", async () => {
-    const local = sqlite({ path: join(HERE, "door.db") })
+    // Async because the engine a realm cannot run must never be imported: a
+    // static import of node.js would fail to resolve `node:sqlite` in a browser
+    // and take the whole import chain down with it.
+    const local = await sqlite({ path: join(HERE, "door.db") })
     assert.equal(local.local, true, "Node gets an engine that runs the statements itself")
     for (const verb of VERBS) assert.equal(typeof local[verb], "function", `the Node engine answers ${verb}`)
     await local.close()
 
-    const remote = sqlite({ dispatch: async () => ({}) })
+    const remote = await sqlite({ dispatch: async () => ({}) })
     assert.equal(remote.local, false, "a dispatch means the database is somewhere else")
     for (const verb of VERBS) assert.equal(typeof remote[verb], "function", `the remote handle answers ${verb}`)
 })
