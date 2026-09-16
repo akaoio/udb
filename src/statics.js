@@ -26,7 +26,9 @@
  * Everything environment-specific is INJECTED:
  *   load(path, {fresh, quiet}) — the host's tiered loader (HTTP/disk/P2P)
  *   driver                     — readBytes/writeBytes/remove/entries
- *   infohash(bytes, name)      — → { v1 } content address
+ *   infohash(bytes, name)      — → { v1 } content address, the HOST's scheme: this
+ *                                 engine computes none and prescribes none, it only
+ *                                 compares what it gets with what the origin said
  *   hashes(path)               — → { ok, status, hash }: the DEPLOYED hash
  *   metadata(name)             — → true for a file that describes others
  *   browser, dev               — environment flags
