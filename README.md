@@ -33,6 +33,16 @@ const db = await sqlite({ sqlite3, name: "akao" })      // inside a worker: WASM
 const db = await sqlite({ dispatch, name: "akao" })     // on a page: a proxy to that worker
 ```
 
+`engine()` resolves the realm **once** and hands back a synchronous open, for a host that opens many databases:
+
+```js
+import { sqliteEngine } from "@akaoio/udb"
+const open = await sqliteEngine()               // once, at module scope
+const db = open({ path: "data/chart/eth.db" })  // synchronous, per symbol, lazily
+```
+
+That split is not a convenience: a store that opens a database per symbol from inside synchronous readers cannot await, and making it await moves one `await` at the top into an `await` at every call site beneath it — measured in akao, ~250 call sites in 12 files under one lazy open.
+
 The door is **async** because it imports only the engine this realm can run: `node.js` imports `node:sqlite` at its top level, and a static import of that would take the whole chain down in a browser. A caller that knows its realm can import `nodeDatabase` from `src/sqlite/node.js` directly and keep a synchronous open.
 
 One contract: `exec` `all` `get` `run` `batch(queries)` `transaction(fn)` `close`. Two engines run the statements themselves (`local: true`) and offer two more that cannot cross a transport — `prepare(sql)` → `{ run, get, all, finalize }` and `sync` → `{ exec, all, get, run }`, both synchronous. The page's handle forwards the async verbs and refuses those two BY NAME.

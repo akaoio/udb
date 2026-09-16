@@ -34,6 +34,18 @@
  * beginning, so there was never a rule keeping engines out — only an asymmetry
  * nobody had written down.
  *
+ * ── Loading an engine and opening a database are two different moments ─────
+ *
+ * `engine()` resolves the realm ONCE and hands back a SYNCHRONOUS open. That
+ * split is not a convenience: a store that opens a database per symbol, lazily,
+ * from inside synchronous readers cannot await — and making it await turns one
+ * `await` at the top into an `await` at every call site beneath it. Measured in
+ * akao (#851): the store's lazy `$db(symbolId)` sits under ~250 call sites in 12
+ * files, and a host has 27 places that construct such a store. Loading once at
+ * module scope costs one top-level await and leaves all of that untouched.
+ *
+ * `sqlite()` stays for the caller that opens exactly one database.
+ *
  * ── Why the door is async, and each engine is not ──────────────────────────
  *
  * `node.js` imports `node:sqlite` at its top level, and a STATIC import of that
@@ -91,11 +103,25 @@ export const LOCAL_ONLY = ["prepare", "sync"]
  * neither is refused out loud — the alternative is an in-memory database that
  * silently forgets everything on reload.
  */
-export async function sqlite({ name = "udb", path, pragmas = [], sqlite3 = null, dispatch = null } = {}) {
-    if (sqlite3) return (await import("./wasm.js")).wasmDatabase({ sqlite3, name, pragmas })
-    if (dispatch) return (await import("./remote.js")).remoteDatabase({ dispatch, name })
-    if (NODE) return (await import("./node.js")).nodeDatabase({ path: path ?? `${name}.db`, pragmas })
+export async function engine({ sqlite3 = null, dispatch = null } = {}) {
+    if (sqlite3) {
+        const { wasmDatabase } = await import("./wasm.js")
+        return ({ name = "udb", pragmas = [] } = {}) => wasmDatabase({ sqlite3, name, pragmas })
+    }
+    if (dispatch) {
+        const { remoteDatabase } = await import("./remote.js")
+        return ({ name = "udb" } = {}) => remoteDatabase({ dispatch, name })
+    }
+    if (NODE) {
+        const { nodeDatabase } = await import("./node.js")
+        return ({ name = "udb", path, pragmas = [] } = {}) => nodeDatabase({ path: path ?? `${name}.db`, pragmas })
+    }
     throw new Error("sqlite: in a browser this door needs either an initialised `sqlite3` module (inside a worker) or a `dispatch` to one — opening an in-memory database instead would lose every write on reload")
+}
+
+/** One database, for a caller that opens exactly one. `engine()` when there are several. */
+export async function sqlite(options = {}) {
+    return (await engine(options))(options)
 }
 export { WASM_ASSETS } from "./assets.js"
 export { statements, multiple } from "./statements.js"
