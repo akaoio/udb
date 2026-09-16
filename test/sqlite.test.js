@@ -39,7 +39,13 @@ test("every statement of a multi-statement exec really runs — the platform dro
 
 test("several statements WITH parameters are refused by name rather than half-run", async () => {
     const db = fresh("refuse.db")
+    await db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY)")
     await assert.rejects(() => db.exec("INSERT INTO t VALUES (?); INSERT INTO t VALUES (?)", [1, 2]), /more than one statement AND takes parameters/)
+    // And the row-returning verbs have no script door at all, so for them a
+    // second statement is always an error — never a first-statement-only run.
+    await assert.rejects(() => db.get("SELECT 1; SELECT 2"), /get\(\) prepares/)
+    await assert.rejects(() => db.run("INSERT INTO t VALUES (1); INSERT INTO t VALUES (2)"), /run\(\) prepares/)
+    assert.equal((await db.get("SELECT COUNT(*) AS total FROM t")).total, 0, "and nothing ran")
     await db.close()
 })
 

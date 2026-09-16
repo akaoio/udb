@@ -66,13 +66,28 @@ export function nodeDatabase({ path = ":memory:", pragmas = [] } = {}) {
         return statement
     }
 
+    /**
+     * The one refusal, stated once for every verb that prepares.
+     *
+     * `prepare` compiles the FIRST statement and drops the rest WITHOUT SAYING
+     * SO (measured, see statements.js). `exec` can fall back to the multi-
+     * statement door; the row-returning verbs cannot, so for them this is
+     * always an error rather than a silent half-run.
+     */
+    const single = (sql, door) => {
+        if (!multiple(sql)) return
+        const head = `sqlite: ${JSON.stringify(String(sql).slice(0, 60))}… holds more than one statement`
+        const why = "the platform prepares the first and drops the rest in silence"
+        if (door === "exec") throw new Error(`${head} AND takes parameters — exec() runs a script, but not a script with parameters: ${why}. Send them one at a time.`)
+        throw new Error(`${head}, and ${door}() prepares — ${why}. Send them one at a time, or use exec() for a script.`)
+    }
+
     /** One statement's rows — [] for a write, which is what every caller expects of DML. */
     const query = (sql, params) => {
         if (multiple(sql)) {
-            // `prepare` would compile the first statement and drop the rest
-            // WITHOUT SAYING SO (measured, see statements.js). With params there
-            // is no other door, so this is a refusal rather than a silent loss.
-            if (bound(params).length) throw new Error(`sqlite: ${JSON.stringify(String(sql).slice(0, 60))}… holds more than one statement AND takes parameters — prepare() would run only the first and drop the rest in silence. Send them one at a time.`)
+            // Several statements and no parameters is a SCRIPT, and `exec` runs
+            // every one of them. With parameters there is no such door.
+            if (bound(params).length) single(sql, "exec")
             db.exec(sql)
             return []
         }
@@ -83,8 +98,12 @@ export function nodeDatabase({ path = ":memory:", pragmas = [] } = {}) {
     const sync = {
         exec: (sql, params) => query(sql, params),
         all: (sql, params) => (multiple(sql) ? query(sql, params) : prepared(sql).all(...bound(params)).map(plain)),
-        get: (sql, params) => plain(prepared(sql).get(...bound(params))) ?? null, // node:sqlite answers undefined; the door says null
+        get: (sql, params) => {
+            single(sql, "get")
+            return plain(prepared(sql).get(...bound(params))) ?? null // node:sqlite answers undefined; the door says null
+        },
         run: (sql, params) => {
+            single(sql, "run")
             const answer = prepared(sql).run(...bound(params))
             return { changes: Number(answer.changes), lastId: Number(answer.lastInsertRowid) }
         }

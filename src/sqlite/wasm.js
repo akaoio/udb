@@ -62,14 +62,22 @@ export function wasmDatabase({ sqlite3, name = "udb", pragmas = [] } = {}) {
     }
 
     /**
-     * One statement's rows. The multi-statement refusal is SHARED with the Node
-     * engine on purpose: that engine cannot run several statements with
-     * parameters without losing all but the first, and two engines that accept
-     * different SQL are two dialects wearing one contract.
+     * One statement's rows. The multi-statement refusals are SHARED with the Node
+     * engine on purpose — this engine COULD run several statements, but two
+     * engines that accept different SQL are two dialects wearing one contract,
+     * and the difference would surface as a page that works and a headless run
+     * that throws (or worse, the other way round).
      */
+    const single = (sql, door) => {
+        if (!multiple(sql)) return
+        const head = `sqlite: ${JSON.stringify(String(sql).slice(0, 60))}… holds more than one statement`
+        if (door === "exec") throw new Error(`${head} AND takes parameters — exec() runs a script, but not a script with parameters. Send them one at a time.`)
+        throw new Error(`${head}, and ${door}() answers ONE statement's rows. Send them one at a time, or use exec() for a script.`)
+    }
+
     const query = (sql, params) => {
         if (multiple(sql)) {
-            if ((params ?? []).length) throw new Error(`sqlite: ${JSON.stringify(String(sql).slice(0, 60))}… holds more than one statement AND takes parameters — send them one at a time, the way the Node engine requires`)
+            if ((params ?? []).length) single(sql, "exec")
             db.exec(sql)
             return []
         }
@@ -79,8 +87,12 @@ export function wasmDatabase({ sqlite3, name = "udb", pragmas = [] } = {}) {
     const sync = {
         exec: (sql, params) => query(sql, params),
         all: (sql, params) => query(sql, params),
-        get: (sql, params) => query(sql, params)[0] ?? null,
+        get: (sql, params) => {
+            single(sql, "get")
+            return query(sql, params)[0] ?? null
+        },
         run: (sql, params) => {
+            single(sql, "run")
             db.exec({ sql, bind: params ?? [] })
             wrote()
             return { changes: db.changes(), lastId: db.selectValue("SELECT last_insert_rowid()") }
