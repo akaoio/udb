@@ -45,7 +45,7 @@ That split is not a convenience: a store that opens a database per symbol from i
 
 The door is **async** because it imports only the engine this realm can run: `node.js` imports `node:sqlite` at its top level, and a static import of that would take the whole chain down in a browser. A caller that knows its realm can import `nodeDatabase` from `src/sqlite/node.js` directly and keep a synchronous open.
 
-One contract: `exec` `all` `get` `run` `batch(queries)` `transaction(fn)` `close`. Two engines run the statements themselves (`local: true`) and offer two more that cannot cross a transport — `prepare(sql)` → `{ run, get, all, finalize }` and `sync` → `{ exec, all, get, run }`, both synchronous. The page's handle forwards the async verbs and refuses those two BY NAME.
+One contract: `exec` `all` `get` `run` `batch(queries)` `transaction(fn)` `close`. Two engines run the statements themselves (`local: true`) and offer two more that cannot cross a transport — `prepare(sql)` → `{ run, get, all, finalize }` and `sync` → `{ exec, all, get, run, transaction }`, both synchronous. The page's handle forwards the async verbs and refuses those two BY NAME.
 
 Measured on one box, 20 000 writes + 20 000 reads: held statements **115.7 ms**, the same work through the async `sql`-string verbs **251.3 ms (+117 %)**, and with reads gathered into one synchronous transaction **152.5 ms (+32 %)**. A door without `prepare` makes the slow number the only option for code whose whole job is a loop.
 

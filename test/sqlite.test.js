@@ -183,6 +183,35 @@ test("the synchronous face is the SAME functions a transaction body gets", async
     await db.close()
 })
 
+test("the synchronous face has a synchronous transaction — it must not need an await", async () => {
+    // Not a convenience: synchronous code calling the async `transaction` either
+    // turns its whole call chain async, or does not await — and not awaiting makes
+    // a failed transaction an unhandled rejection while the caller returns as if
+    // the write had landed.
+    const db = fresh("sync-tx.db")
+    await db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY, val TEXT NOT NULL)")
+    const insert = db.prepare("INSERT INTO t (val) VALUES (?)")
+    const total = db.sync.transaction((tx) => {
+        insert.run("a")
+        insert.run("b")
+        return tx.get("SELECT COUNT(*) AS total FROM t").total
+    })
+    assert.equal(total, 2, "it answers the body's value, with no promise in sight")
+
+    assert.throws(
+        () =>
+            db.sync.transaction(() => {
+                insert.run("c")
+                throw new Error("nope")
+            }),
+        /nope/,
+        "and it throws SYNCHRONOUSLY, which is the whole point"
+    )
+    assert.equal(db.sync.get("SELECT COUNT(*) AS total FROM t").total, 2, "rolled back")
+    insert.finalize()
+    await db.close()
+})
+
 test("a local engine declares what it can do, and the remote one refuses both BY NAME", async () => {
     const local = await sqlite({ path: join(HERE, "local.db") })
     for (const verb of LOCAL_ONLY) assert.ok(local[verb], `a local engine offers ${verb}`)

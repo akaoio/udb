@@ -122,9 +122,22 @@ export function nodeDatabase({ path = ":memory:", pragmas = [] } = {}) {
             single(sql, "run")
             const answer = prepared(sql).run(...bound(params))
             return { changes: Number(answer.changes), lastId: Number(answer.lastInsertRowid) }
-        }
+        },
+        // Assigned after `transaction` exists — same function the async verb runs,
+        // so there is one implementation and one rollback path.
+        transaction: null
     }
 
+    /**
+     * A transaction, synchronously — the verb the synchronous face was missing.
+     *
+     * Without it, code that is otherwise synchronous has to call the async
+     * `transaction` and either await (turning the whole call chain async) or not
+     * await — and NOT awaiting is the silent-wrong case: the body runs, but a
+     * failure becomes an unhandled rejection while the caller returns normally, as
+     * if the write had landed. Measured the honest way: akao's positions store did
+     * exactly that for one commit (#851).
+     */
     const transaction = (work) => {
         db.exec("BEGIN")
         let answer
@@ -176,6 +189,8 @@ export function nodeDatabase({ path = ":memory:", pragmas = [] } = {}) {
         statements.add(held)
         return held
     }
+
+    sync.transaction = transaction
 
     return {
         path,
