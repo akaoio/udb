@@ -68,8 +68,14 @@ const bound = (params) => (params === undefined || params === null ? [] : Array.
  * durability policy a directory is under — `journal_mode`, `busy_timeout` and
  * the rest are stated by whoever owns the file.
  */
-export function nodeDatabase({ path = ":memory:", pragmas = [] } = {}) {
-    const db = new DatabaseSync(path)
+export function nodeDatabase({ path = ":memory:", pragmas = [], readOnly = false } = {}) {
+    // `readOnly` is not a hint: SQLite refuses the write itself ("attempt to write
+    // a readonly database"), which is what makes it worth having for a caller that
+    // is INSPECTING a file it must not touch — a freshly restored replica, say.
+    // Measured on Node v24.21: the pragmas below still apply on such a handle
+    // (journal_mode is silently ignored, busy_timeout is honoured), so nothing
+    // needs a second code path.
+    const db = new DatabaseSync(path, { readOnly })
     for (const pragma of pragmas) db.exec(`PRAGMA ${pragma}`)
 
     // Prepared statements are cached by their text: a store that writes one row

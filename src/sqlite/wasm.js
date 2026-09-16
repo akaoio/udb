@@ -34,11 +34,11 @@ const CHECKPOINT_MS = 2000
  * would otherwise look like a database that simply forgets everything: without
  * it the module happily opens an in-memory database instead.
  */
-export function wasmDatabase({ sqlite3, name = "udb", pragmas = [] } = {}) {
+export function wasmDatabase({ sqlite3, name = "udb", pragmas = [], readOnly = false } = {}) {
     if (!sqlite3?.oo1) throw new Error("sqlite: the WASM engine needs an initialised sqlite3 module — the host loads it and passes it in")
     if (!sqlite3.oo1.OpfsDb) throw new Error("sqlite: no OPFS VFS in this context — the WASM engine must run in a dedicated worker, or it would open an in-memory database that forgets everything on reload")
 
-    const db = new sqlite3.oo1.OpfsDb(`/${name}.db`)
+    const db = new sqlite3.oo1.OpfsDb(`/${name}.db`, readOnly ? "r" : "c")
     db.exec("PRAGMA journal_mode = WAL")
     db.exec("PRAGMA synchronous = NORMAL") // fsync at checkpoints, not at every commit
     db.exec("PRAGMA wal_autocheckpoint = 0") // this file drives the checkpoint instead

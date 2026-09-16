@@ -222,6 +222,19 @@ test("a local engine declares what it can do, and the remote one refuses both BY
     assert.throws(() => remote.sync, /no synchronous face across a transport/)
 })
 
+test("readOnly is enforced by SQLite itself, not by a promise in the door", async () => {
+    const path = join(HERE, "readonly.db")
+    const writer = nodeDatabase({ path })
+    await writer.exec("CREATE TABLE t (id INTEGER PRIMARY KEY, val TEXT)")
+    await writer.run("INSERT INTO t (val) VALUES (?)", ["a"])
+    await writer.close()
+
+    const reader = nodeDatabase({ path, pragmas: ["busy_timeout=5000"], readOnly: true })
+    assert.deepEqual(await reader.get("SELECT val FROM t"), { val: "a" }, "it reads")
+    await assert.rejects(() => reader.exec("CREATE TABLE u (x)"), /readonly database/, "and the engine refuses the write — a caller inspecting a restored replica cannot touch it by accident")
+    await reader.close()
+})
+
 test("a closed handle refuses rather than reopening silently", async () => {
     const db = fresh("closed.db")
     await db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY)")

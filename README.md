@@ -31,6 +31,7 @@ import { sqlite } from "@akaoio/udb"
 const db = await sqlite({ path: "data/chart/positions.db", pragmas: ["journal_mode=WAL", "busy_timeout=5000"] })  // Node
 const db = await sqlite({ sqlite3, name: "akao" })      // inside a worker: WASM over OPFS
 const db = await sqlite({ dispatch, name: "akao" })     // on a page: a proxy to that worker
+const db = await sqlite({ path: "restored.db", readOnly: true })         // inspect without touching
 ```
 
 `engine()` resolves the realm **once** and hands back a synchronous open, for a host that opens many databases:
