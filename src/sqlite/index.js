@@ -23,6 +23,20 @@
  * beginning, so there was never a rule keeping engines out — only an asymmetry
  * nobody had written down.
  *
+ * ── Why the door is async, and each engine is not ──────────────────────────
+ *
+ * `node.js` imports `node:sqlite` at its top level, and a STATIC import of that
+ * from here would be evaluated in every realm — so a browser loading this file
+ * fails to resolve `node:sqlite` and the whole import chain dies before a single
+ * line runs. (Measured the expensive way on 2026-09-16: akao's page stopped
+ * mounting, and `page.waitForFunction` reported only a 120 s timeout — the
+ * failure was three layers away from the message.) So the engine a realm cannot
+ * run is never fetched: each branch imports its own, which makes this door
+ * asynchronous.
+ *
+ * A caller that KNOWS its realm — a Node process opening a file it owns — can
+ * import `nodeDatabase` directly from `./node.js` and keep a synchronous open.
+ *
  * ── What is still the host's ────────────────────────────────────────────────
  *
  * Two things, and both because they are not about SQL:
@@ -43,9 +57,6 @@
  * refuses by name and points at `batch`, which is the same atomicity as data.
  */
 import { NODE } from "../env.js"
-import { nodeDatabase } from "./node.js"
-import { wasmDatabase } from "./wasm.js"
-import { remoteDatabase } from "./remote.js"
 
 /** The verbs every engine answers — exported so a conformance suite needs no list of its own. */
 export const VERBS = ["exec", "all", "get", "run", "batch", "transaction", "close"]
@@ -59,14 +70,12 @@ export const VERBS = ["exec", "all", "get", "run", "batch", "transaction", "clos
  * neither is refused out loud — the alternative is an in-memory database that
  * silently forgets everything on reload.
  */
-export function sqlite({ name = "udb", path, pragmas = [], sqlite3 = null, dispatch = null } = {}) {
-    if (sqlite3) return wasmDatabase({ sqlite3, name, pragmas })
-    if (dispatch) return remoteDatabase({ dispatch, name })
-    if (NODE) return nodeDatabase({ path: path ?? `${name}.db`, pragmas })
+export async function sqlite({ name = "udb", path, pragmas = [], sqlite3 = null, dispatch = null } = {}) {
+    if (sqlite3) return (await import("./wasm.js")).wasmDatabase({ sqlite3, name, pragmas })
+    if (dispatch) return (await import("./remote.js")).remoteDatabase({ dispatch, name })
+    if (NODE) return (await import("./node.js")).nodeDatabase({ path: path ?? `${name}.db`, pragmas })
     throw new Error("sqlite: in a browser this door needs either an initialised `sqlite3` module (inside a worker) or a `dispatch` to one — opening an in-memory database instead would lose every write on reload")
 }
-
-export { nodeDatabase, wasmDatabase, remoteDatabase }
 export { WASM_ASSETS } from "./assets.js"
 export { statements, multiple } from "./statements.js"
 export default sqlite
