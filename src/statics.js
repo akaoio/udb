@@ -65,13 +65,13 @@
  * is at rest locally — the honest scope of a cache.
  */
 import { walk } from "./walk.js"
-import { DRIVER, requires, requiresFunction } from "./contract.js"
+import { DRIVER, DRIVER_FIELDS, requires, requiresFunction } from "./contract.js"
 
 export function statics({ load, driver, infohash, hashes, metadata, browser, dev }) {
     // Checked HERE, not at the first read: a driver missing one method used to
     // surface as `driver.entries is not a function` from inside a load, with the
     // cause in the host's wiring and the stack in this package (see contract.js).
-    requires(driver, DRIVER, "driver", "statics()")
+    requires(driver, DRIVER, "driver", "statics()", DRIVER_FIELDS)
     requiresFunction(load, "load", "statics()")
     requiresFunction(infohash, "infohash", "statics()")
     requiresFunction(hashes, "hashes", "statics()")
@@ -92,7 +92,25 @@ export function statics({ load, driver, infohash, hashes, metadata, browser, dev
     const memo = new Map()
     const listeners = new Map()
 
-    const keyOf = (path) => path.join("/")
+    /**
+     * The memo's key, and the STORE is part of it.
+     *
+     * Narrower than it first looks, and the narrow version is the true one: the
+     * two validated branches are safe by construction already (`ok` compares the
+     * held hash with the deployed one, so another store's body simply misses; 404
+     * evicts), and the offline branch reads the STORE before any copy of it. What
+     * is left is the last line of `$prod` — the offline promise, where the memo
+     * answers because the alternative is `undefined`. A held body from a store
+     * nobody is reading any more is #705 wearing that promise as a disguise.
+     *
+     * So the key carries the scope and the promise becomes per store: a store with
+     * nothing to promise says `undefined`, and the store that does hold a body
+     * still gets its own. The test named "the offline promise is the last body of
+     * THIS store" pins exactly that, and goes red without this line — measured,
+     * because the first version of this change came with a test that passed
+     * either way.
+     */
+    const keyOf = (path) => `${driver.scope}\u0000${path.join("/")}`
 
     function notify(path, value) {
         const set = listeners.get(keyOf(path))

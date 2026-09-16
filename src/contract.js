@@ -28,6 +28,32 @@
 /** The byte driver, as the statics engine and `walk` use it. */
 export const DRIVER = ["readBytes", "writeBytes", "remove", "entries"]
 
+/**
+ * And what a driver must SAY about itself: which store it reads and writes.
+ *
+ * A driver is a capability, and until 0.10.0 nothing made it say WHICH store it
+ * reads — so a cache in here could not tell two of them apart.
+ *
+ * The honest size of that: `statics.js` was already safe on its validated
+ * branches (a held hash is compared with the deployed one, so another store's
+ * body misses; 404 evicts) and its offline branch reads the store before any copy
+ * of it. What was left is the LAST line of `$prod` — the offline promise, where
+ * the memo answers because the only alternative is `undefined`. A body held from
+ * a store nobody is reading any more is akao #705 wearing that promise as a
+ * disguise: a suite stages two trees, a fork run points at one site's build, a
+ * worker inherits another root through `workerData`.
+ *
+ * One line, and it is measured: the test named "the offline promise is the last
+ * body of THIS store" goes red without the scope in the memo key. (The first
+ * draft of this change shipped with a test that passed either way — the bait is
+ * why this paragraph says "the last line" and not "the memo".)
+ *
+ * A string, opaque to this package: `"OPFS"` in a browser, an absolute path on a
+ * disk, whatever names ONE store for the host. Two drivers with the same scope
+ * claim to be the same store.
+ */
+export const DRIVER_FIELDS = ["scope"]
+
 /** A chain-store, as the `lives` mount uses it: a root that chains, plus a wipe. */
 export const STORE = ["get", "del"]
 
@@ -38,10 +64,15 @@ export const STORE = ["get", "del"]
  * needs it, because the caller reading this error is wiring a host, not reading
  * this package.
  */
-export function requires(value, methods, what, who) {
+export function requires(value, methods, what, who, fields = []) {
     if (!value || typeof value !== "object") throw new Error(`UDB: ${who} needs a ${what} object — the host injects it (got ${value === null ? "null" : typeof value})`)
     const missing = methods.filter((method) => typeof value[method] !== "function")
     if (missing.length) throw new Error(`UDB: the ${what} injected into ${who} is missing ${missing.map((method) => `${method}()`).join(", ")} — ${what} needs ${methods.join(", ")}`)
+    // A field is checked as strictly as a method, and for the same reason: an
+    // empty or absent `scope` would leave the caches inside this package keyed by
+    // path alone, which is the silent-wrong answer DRIVER_FIELDS exists for.
+    const blank = fields.filter((field) => typeof value[field] !== "string" || !value[field].length)
+    if (blank.length) throw new Error(`UDB: the ${what} injected into ${who} must declare ${blank.join(", ")} as a non-empty string — ${blank.includes("scope") ? "a scope names WHICH store this driver reads, and without it a cache here cannot tell two stores apart (akao #705)" : "the contract says so"}`)
     return value
 }
 
@@ -51,4 +82,4 @@ export function requiresFunction(value, what, who) {
     return value
 }
 
-export default { DRIVER, STORE, requires, requiresFunction }
+export default { DRIVER, DRIVER_FIELDS, STORE, requires, requiresFunction }

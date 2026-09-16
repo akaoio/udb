@@ -49,7 +49,7 @@ async function deploy(driver, published, name, body) {
 }
 
 /** The four methods this package calls, and nothing more (src/contract.js). */
-const bareDriver = () => ({ readBytes: async () => null, writeBytes: async () => ({}), remove: async () => {}, entries: async () => [] })
+const bareDriver = () => ({ scope: "bare", readBytes: async () => null, writeBytes: async () => ({}), remove: async () => {}, entries: async () => [] })
 
 test("the engine refuses to be built without the host's two answers", () => {
     // A default would be the engine guessing one host's spelling, and the
@@ -69,6 +69,45 @@ test("an injected engine of the wrong SHAPE is refused at wiring, naming what is
     assert.throws(() => statics({ ...whole, driver: three }), /missing entries\(\)/, "and it names the ONE that is missing, not the whole list")
     assert.throws(() => statics({ ...whole, driver: null }), /needs a driver object/)
     assert.throws(() => statics({ ...whole, driver: bareDriver(), load: "nope" }), /needs load to be a function/)
+})
+
+test("two stores, one path, no deployed hash — neither reads the other's bytes", async () => {
+    // The hole this closes, measured in the host (akao #705): a memo keyed by PATH
+    // alone answers a read for a DIFFERENT store when the path matches and no
+    // deployed hash exists to tell them apart. A suite that stages two trees, a
+    // fork run pointed at one site's build, a worker that inherited another root —
+    // all of them are two stores in one realm.
+    //
+    // The loader here reaches the at-rest bytes itself, which is the shape akao's
+    // FS.load really has, and the detail that makes this the reproduction rather
+    // than a different bug: with a loader that answers nothing, the unvalidated
+    // branch memoizes nothing and the cross-store read cannot happen at all.
+    const oneStore = () => {
+        const driver = diskDriver(diskRoot())
+        const engine = statics({
+            load: async (path) => {
+                const bytes = await driver.readBytes(path)
+                return bytes?.length ? JSON.parse(new TextDecoder().decode(bytes)) : undefined
+            },
+            driver,
+            infohash: contentHash,
+            hashes: async () => ({ ok: false, status: 404, hash: undefined }),
+            metadata: () => false,
+            browser: false,
+            dev: false
+        })
+        return { engine, driver }
+    }
+    const first = oneStore()
+    const second = oneStore()
+    assert.notEqual(first.driver.scope, second.driver.scope, "two roots, so two scopes")
+
+    await first.driver.writeBytes(["statics", "same.json"], encode('{"tree":"first"}'))
+    await second.driver.writeBytes(["statics", "same.json"], encode('{"tree":"second"}'))
+
+    assert.deepEqual(await first.engine.$prod(["statics", "same.json"]), { tree: "first" })
+    assert.deepEqual(await second.engine.$prod(["statics", "same.json"]), { tree: "second" }, "the second store reads ITS OWN bytes, not the first store's memo")
+    assert.deepEqual(await first.engine.$prod(["statics", "same.json"]), { tree: "first" }, "and the first still reads its own")
 })
 
 test("an at-rest body proves itself and serves without the body tiers", async () => {
@@ -183,6 +222,13 @@ function movingEngine({ trees, load, hashes }) {
     const state = { tree: trees[0] }
     const at = (tree) => diskDriver(roots[tree])
     const driver = {
+        // The scope MOVES with the tree, because that is what this driver really
+        // does — and saying so is what lets the memo inside the engine tell the
+        // two apart. A fixed scope here would be a driver lying about itself, and
+        // the lie would look exactly like #705.
+        get scope() {
+            return roots[state.tree]
+        },
         readBytes: (path) => at(state.tree).readBytes(path),
         writeBytes: (path, bytes) => at(state.tree).writeBytes(path, bytes),
         remove: (path) => at(state.tree).remove(path),
@@ -254,6 +300,26 @@ test("offline still serves the last held body when store and loader have nothing
     assert.deepEqual(await engine.$prod(["statics", "x.json"]), { v: 9 })
     reachable = false
     assert.deepEqual(await engine.$prod(["statics", "x.json"]), { v: 9 })
+})
+
+test("the offline promise is the last body of THIS store, never another store's", async () => {
+    // The one door the tier order does not close: when the store has nothing and
+    // the loader has nothing, the memo answers last (the offline promise above).
+    // If the driver has since moved to another store, that held body describes a
+    // store nobody is reading — which is #705 wearing the offline promise as a
+    // disguise. The memo key carries `driver.scope`, so the promise is kept per
+    // store: the new store gets `undefined` (it has nothing to promise), and the
+    // old one still gets its own body.
+    let reachable = true
+    const { engine, state } = movingEngine({ trees: ["A", "B"], load: async () => (reachable ? { tree: "A" } : undefined) })
+    assert.deepEqual(await engine.$prod(["statics", "x.json"]), { tree: "A" }, "A holds a body")
+
+    reachable = false
+    state.tree = "B"
+    assert.equal(await engine.$prod(["statics", "x.json"]), undefined, "B is empty and offline: it promises nothing, and must not be handed A's body")
+
+    state.tree = "A"
+    assert.deepEqual(await engine.$prod(["statics", "x.json"]), { tree: "A" }, "and A's own promise survives")
 })
 
 test("a resolver that THROWS means 'cannot know', never 'the file is gone'", async () => {
