@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { mkdtempSync, rmSync, existsSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { sqlite, VERBS } from "../src/sqlite/index.js"
+import { sqlite, VERBS, LOCAL_ONLY } from "../src/sqlite/index.js"
 import { nodeDatabase } from "../src/sqlite/node.js"
 import { wasmDatabase } from "../src/sqlite/wasm.js"
 import { remoteDatabase } from "../src/sqlite/remote.js"
@@ -147,6 +147,50 @@ test("the pragmas are the CALLER's — the engine states none of its own on Node
     const plain = nodeDatabase({ path: join(HERE, "plain.db") })
     assert.notEqual((await plain.get("PRAGMA journal_mode")).journal_mode, "wal", "no pragma asked, none applied — a durability policy belongs to whoever owns the directory")
     await plain.close()
+})
+
+test("a prepared statement is held by the caller, and answers the same shapes", async () => {
+    const db = fresh("prepared.db")
+    await db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY, val TEXT)")
+    const insert = db.prepare("INSERT INTO t (val) VALUES (?)")
+    assert.deepEqual(insert.run(["a"]), { changes: 1, lastId: 1 })
+    assert.deepEqual(insert.run(["b"]), { changes: 1, lastId: 2 }, "the same statement runs again — that is the whole point")
+    const one = db.prepare("SELECT val FROM t WHERE id = ?")
+    assert.deepEqual(one.get([1]), { val: "a" })
+    assert.equal(one.get([99]), null, "a miss is null here too")
+    assert.equal(Object.getPrototypeOf(one.get([1])), Object.prototype, "and the row type matches the other verbs")
+    assert.deepEqual(
+        db.prepare("SELECT val FROM t ORDER BY id").all().map((row) => row.val),
+        ["a", "b"]
+    )
+    insert.finalize()
+    await db.close()
+})
+
+test("a prepared statement refuses a second statement, like every verb that prepares", async () => {
+    const db = fresh("prepared-multi.db")
+    assert.throws(() => db.prepare("SELECT 1; SELECT 2"), /prepare\(\) prepares/)
+    await db.close()
+})
+
+test("the synchronous face is the SAME functions a transaction body gets", async () => {
+    const db = fresh("sync-face.db")
+    await db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY, val TEXT)")
+    db.sync.run("INSERT INTO t (val) VALUES (?)", ["a"])
+    assert.deepEqual(db.sync.get("SELECT val FROM t WHERE id = ?", [1]), { val: "a" })
+    assert.deepEqual(db.sync.all("SELECT val FROM t"), [{ val: "a" }])
+    assert.deepEqual(db.sync.exec("INSERT INTO t (val) VALUES ('b')"), [])
+    await db.close()
+})
+
+test("a local engine declares what it can do, and the remote one refuses both BY NAME", async () => {
+    const local = await sqlite({ path: join(HERE, "local.db") })
+    for (const verb of LOCAL_ONLY) assert.ok(local[verb], `a local engine offers ${verb}`)
+    await local.close()
+
+    const remote = await sqlite({ dispatch: async () => ({}) })
+    assert.throws(() => remote.prepare("SELECT 1"), /a statement is a handle inside the database/)
+    assert.throws(() => remote.sync, /no synchronous face across a transport/)
 })
 
 test("a closed handle refuses rather than reopening silently", async () => {

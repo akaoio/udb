@@ -99,9 +99,58 @@ export function wasmDatabase({ sqlite3, name = "udb", pragmas = [] } = {}) {
         }
     }
 
+    /**
+     * A prepared statement the caller keeps — same verb, same spelling, the other
+     * engine's machinery.
+     *
+     * oo1's `Stmt` is a cursor: bind, then step until it answers false, and
+     * `get({})` fills an object by column name. It must be RESET before it is
+     * reused and FINALIZED before the database closes (unlike node:sqlite, where
+     * the collector is enough), so the handle tracks what it created.
+     */
+    const statements = new Set()
+    const prepare = (sql) => {
+        single(sql, "prepare")
+        const statement = db.prepare(sql)
+        const feed = (params) => {
+            statement.reset()
+            const values = params === undefined || params === null ? null : params
+            if (values !== null) statement.bind(values)
+        }
+        const held = {
+            run: (params) => {
+                feed(params)
+                statement.step()
+                statement.reset()
+                wrote()
+                return { changes: db.changes(), lastId: db.selectValue("SELECT last_insert_rowid()") }
+            },
+            get: (params) => {
+                feed(params)
+                const row = statement.step() ? statement.get({}) : null
+                statement.reset()
+                return row
+            },
+            all: (params) => {
+                feed(params)
+                const rows = []
+                while (statement.step()) rows.push(statement.get({}))
+                statement.reset()
+                return rows
+            },
+            finalize: () => {
+                statements.delete(held)
+                statement.finalize()
+            }
+        }
+        statements.add(held)
+        return held
+    }
+
     return {
         name,
         local: true,
+        prepare,
         exec: async (sql, params) => sync.exec(sql, params),
         all: async (sql, params) => sync.all(sql, params),
         get: async (sql, params) => sync.get(sql, params),
@@ -120,7 +169,9 @@ export function wasmDatabase({ sqlite3, name = "udb", pragmas = [] } = {}) {
             wrote()
             return answer
         },
+        sync,
         close: async () => {
+            for (const statement of [...statements]) statement.finalize()
             clearInterval(timer)
             db.exec("PRAGMA wal_checkpoint(FULL)")
             db.close()
