@@ -1,12 +1,16 @@
 {
     "_note": "acronym: foreign vocabulary — UDB is an acronym and is spelled UDB everywhere this package OWNS the name. `name` stays lowercase because npm forbids capitals in a package name outright (validate-npm-package-name: \"name can no longer contain capital letters\"), and `repository.url` follows whatever GitHub is serving.",
     "name": "@akaoio/udb",
-    "version": "0.2.1",
-    "description": "The universal data door: one chain grammar over every kind of data \u2014 content-addressed statics, sync local kv, live market mirrors, filterable collections with live queries. Engines are injected; the door is the law.",
+    "version": "0.3.0",
+    "description": "The universal data door: one chain grammar over every kind of data \u2014 content-addressed statics, sync local kv, live market mirrors, filterable collections with live queries, and a SQLite door with an engine per realm. The door is the law.",
     "type": "module",
     "main": "src/index.js",
     "scripts": {
         "test": "node --test test/*.test.js"
+    },
+    "_dependencies": "acronym: foreign vocabulary — the WASM build is a dependency of the browser ENGINE (src/sqlite/wasm.js), which this package owns since 0.3.0. A host never declares it: npm installs it transitively, and src/sqlite/assets.js declares which files the host's builder must copy so a page can reach them (a page has no module resolution, so a bare specifier cannot work there).",
+    "dependencies": {
+        "@sqlite.org/sqlite-wasm": "^3.53.0"
     },
     "keywords": [
         "database",

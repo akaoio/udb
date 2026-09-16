@@ -21,13 +21,33 @@ DB.get("orders").find({ status: "open" }).on(update)         // live query
 
 A verb a mount does not support **throws by name** — the grammar never silently no-ops.
 
+## The SQLite door
+
+SQL is a language, and it is the same language in every realm — what differs is who executes it. Since 0.3.0 that engine lives here rather than in each host:
+
+```js
+import { sqlite } from "@akaoio/udb"
+
+const db = sqlite({ path: "data/chart/positions.db", pragmas: ["journal_mode=WAL", "busy_timeout=5000"] })  // Node
+const db = sqlite({ sqlite3, name: "akao" })      // inside a worker: WASM over OPFS
+const db = sqlite({ dispatch, name: "akao" })     // on a page: a proxy to that worker
+```
+
+One contract: `exec` `all` `get` `run` `batch(queries)` `transaction(fn)` `close`. Two engines run the statements themselves (`local: true`); the page's handle forwards them.
+
+- **`transaction(fn)` hands `fn` a SYNCHRONOUS handle and refuses a promise.** An `await` between BEGIN and COMMIT gives the event loop away with the transaction open, and anything else reaching that connection lands inside it — a write lost or rolled back, with nothing in a log to say so. Across a transport a function cannot travel at all, so the remote handle throws by name and points at `batch`, the same atomicity expressed as data.
+- **Several statements with parameters are refused.** Measured on Node v24.21: `prepare("CREATE TABLE a(x); CREATE TABLE b(y)").all()` creates only `a`, with no error. The door turns that silent loss into a refusal.
+- **Rows carry an ordinary prototype in both engines** — `node:sqlite` answers null-prototype objects, so the door normalises them; a row type that depends on the realm is a difference this door exists to remove.
+- **Pragmas on Node are the caller's.** Whoever owns the directory states its durability policy; the engine only knows how to run SQL. The browser engine states three of its own (WAL, `synchronous = NORMAL`, manual checkpointing) because OPFS has no second writer and every fsync is felt.
+- **The WASM build is this package's dependency, but a host never declares it**: npm installs it transitively. A page has no module resolution, so `WASM_ASSETS` declares which files a host's builder must copy next to its worker, and the host passes the initialised module in.
+
 ## Filter language
 
 One meaning, two backends: `match(doc, filter)` (in-process matcher) and `compile(filter)` (SQL WHERE over `json_extract`). Ops `$eq $ne $gt $gte $lt $lte $in $nin`, combinators `&`/`|`, dot paths, honest null-vs-missing.
 
-## The host injects its engines
+## The host injects what only it can know
 
-UDB imports **nothing** from its host. Wire it:
+UDB imports nothing from its host — the SQLite engine it now carries is reached through parameters too (the module, or a transport). What a host still wires in is everything that is about THIS host rather than about a realm: how bytes are loaded and stored, what a content address is, how a realm announces a write.
 
 ```js
 import { createDB, statics, collections } from "@akaoio/udb"
