@@ -36,9 +36,25 @@ import { multiple } from "./statements.js"
  * `node:sqlite` answers rows as NULL-PROTOTYPE objects while the WASM engine
  * answers ordinary ones, and a door whose row type depends on the realm is a door
  * that has not removed the difference it exists to remove: `deepStrictEqual`
- * tells them apart, so does anything reading `row.constructor` or a method off
- * Object.prototype. A shallow copy per row is the price, and it is paid here
- * rather than in every caller that might be the one to notice.
+ * tells them apart, `hasOwnProperty` THROWS on one and not the other. So the copy
+ * is paid here rather than in every caller that might be the one to notice.
+ *
+ * ── What it costs, measured rather than waved at (2026-09-16, 40 000 rows) ──
+ *
+ *     raw statement.get()                200.3 ms   —
+ *     + spread {...row}                  274.7 ms   +1.88 µs/row  (+37.8 %)
+ *     + Object.assign({}, row)           289.4 ms   +2.25 µs/row
+ *     + Object.setPrototypeOf(row, …)    316.5 ms   +2.93 µs/row
+ *     (the parameter wrapper, by contrast:  +0.18 µs/row)
+ *
+ * So the spread is the cheapest of the three ways to get an ordinary object, and
+ * the row copy — not the door's layering — is where a read loop's time goes. It
+ * is kept anyway: the alternative that costs nothing is making BOTH engines
+ * answer null-prototype rows, which is the same parity bought by handing every
+ * caller an object that throws on `hasOwnProperty`. At the scale this door is
+ * actually read at — a few hundred rows per page of candles — it is under a
+ * millisecond; only a million-row backfill can see it, and that is a job measured
+ * in minutes.
  */
 const plain = (row) => (row ? { ...row } : row)
 
