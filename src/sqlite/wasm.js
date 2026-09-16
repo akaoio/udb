@@ -112,26 +112,29 @@ export function wasmDatabase({ sqlite3, name = "udb", pragmas = [] } = {}) {
     const prepare = (sql) => {
         single(sql, "prepare")
         const statement = db.prepare(sql)
+        // Variadic, like node:sqlite's statements and every other SQLite binding
+        // — see the note in node.js. oo1's `bind` takes ONE value or an
+        // array/object, so the variadic list is normalised here.
         const feed = (params) => {
             statement.reset()
-            const values = params === undefined || params === null ? null : params
-            if (values !== null) statement.bind(values)
+            if (!params.length) return
+            statement.bind(params.length === 1 ? params[0] : params)
         }
         const held = {
-            run: (params) => {
+            run: (...params) => {
                 feed(params)
                 statement.step()
                 statement.reset()
                 wrote()
                 return { changes: db.changes(), lastId: db.selectValue("SELECT last_insert_rowid()") }
             },
-            get: (params) => {
+            get: (...params) => {
                 feed(params)
                 const row = statement.step() ? statement.get({}) : null
                 statement.reset()
                 return row
             },
-            all: (params) => {
+            all: (...params) => {
                 feed(params)
                 const rows = []
                 while (statement.step()) rows.push(statement.get({}))
