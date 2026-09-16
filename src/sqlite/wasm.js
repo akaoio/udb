@@ -96,6 +96,19 @@ export function wasmDatabase({ sqlite3, name = "udb", pragmas = [] } = {}) {
             db.exec({ sql, bind: params ?? [] })
             wrote()
             return { changes: db.changes(), lastId: db.selectValue("SELECT last_insert_rowid()") }
+        },
+        // Synchronous transaction — see the note in node.js: without it,
+        // synchronous code must call the async verb and NOT awaiting it turns a
+        // failed transaction into an unhandled rejection while the caller returns
+        // as if the write had landed.
+        transaction: (work) => {
+            const answer = db.transaction(() => {
+                const value = work(sync)
+                if (value && typeof value.then === "function") throw new Error("sqlite: a transaction body must be synchronous — an await between BEGIN and COMMIT lets another caller's statements land inside this transaction")
+                return value
+            })
+            wrote()
+            return answer
         }
     }
 
