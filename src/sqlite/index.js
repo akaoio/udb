@@ -106,7 +106,7 @@ export const LOCAL_ONLY = ["prepare", "sync"]
 export async function engine({ sqlite3 = null, dispatch = null } = {}) {
     if (sqlite3) {
         const { wasmDatabase } = await import("./wasm.js")
-        return ({ name = "udb", pragmas = [] } = {}) => wasmDatabase({ sqlite3, name, pragmas })
+        return ({ name = "udb", pragmas = [], readOnly = false } = {}) => wasmDatabase({ sqlite3, name, pragmas, readOnly })
     }
     if (dispatch) {
         const { remoteDatabase } = await import("./remote.js")
@@ -114,7 +114,7 @@ export async function engine({ sqlite3 = null, dispatch = null } = {}) {
     }
     if (NODE) {
         const { nodeDatabase } = await import("./node.js")
-        return ({ name = "udb", path, pragmas = [] } = {}) => nodeDatabase({ path: path ?? `${name}.db`, pragmas })
+        return ({ name = "udb", path, pragmas = [], readOnly = false } = {}) => nodeDatabase({ path: path ?? `${name}.db`, pragmas, readOnly })
     }
     throw new Error("sqlite: in a browser this door needs either an initialised `sqlite3` module (inside a worker) or a `dispatch` to one — opening an in-memory database instead would lose every write on reload")
 }
