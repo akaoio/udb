@@ -153,12 +153,12 @@ test("a prepared statement is held by the caller, and answers the same shapes", 
     const db = fresh("prepared.db")
     await db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY, val TEXT)")
     const insert = db.prepare("INSERT INTO t (val) VALUES (?)")
-    assert.deepEqual(insert.run(["a"]), { changes: 1, lastId: 1 })
-    assert.deepEqual(insert.run(["b"]), { changes: 1, lastId: 2 }, "the same statement runs again — that is the whole point")
+    assert.deepEqual(insert.run("a"), { changes: 1, lastId: 1 })
+    assert.deepEqual(insert.run("b"), { changes: 1, lastId: 2 }, "the same statement runs again — that is the whole point")
     const one = db.prepare("SELECT val FROM t WHERE id = ?")
-    assert.deepEqual(one.get([1]), { val: "a" })
-    assert.equal(one.get([99]), null, "a miss is null here too")
-    assert.equal(Object.getPrototypeOf(one.get([1])), Object.prototype, "and the row type matches the other verbs")
+    assert.deepEqual(one.get(1), { val: "a" }, "variadic, like every SQLite binding")
+    assert.equal(one.get(99), null, "a miss is null here too")
+    assert.equal(Object.getPrototypeOf(one.get(1)), Object.prototype, "and the row type matches the other verbs")
     assert.deepEqual(
         db.prepare("SELECT val FROM t ORDER BY id").all().map((row) => row.val),
         ["a", "b"]

@@ -156,13 +156,18 @@ export function nodeDatabase({ path = ":memory:", pragmas = [] } = {}) {
     const prepare = (sql) => {
         single(sql, "prepare")
         const statement = db.prepare(sql)
+        // VARIADIC, unlike the handle's verbs: a statement has no `sql` argument in
+        // front of its parameters, so `st.run(a, b)` is the spelling every SQLite
+        // binding uses (node:sqlite, better-sqlite3) and the one callers already
+        // have in their fingers. Named parameters still arrive as one object,
+        // exactly as they do there.
         const held = {
-            run: (params) => {
-                const answer = statement.run(...bound(params))
+            run: (...params) => {
+                const answer = statement.run(...params)
                 return { changes: Number(answer.changes), lastId: Number(answer.lastInsertRowid) }
             },
-            get: (params) => plain(statement.get(...bound(params))) ?? null,
-            all: (params) => statement.all(...bound(params)).map(plain),
+            get: (...params) => plain(statement.get(...params)) ?? null,
+            all: (...params) => statement.all(...params).map(plain),
             // node:sqlite has no finalize: the statement is released with the
             // database, or by the collector. Declared so one spelling works in
             // both engines — the WASM one MUST finalize.
