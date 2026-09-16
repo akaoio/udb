@@ -9,7 +9,7 @@ import { sqlite, diskRoot, diskDriver, contentHash, encode } from "./real.js"
 // engine on a real SQLite (node:sqlite). The kv chain-store remains the one
 // documented CONTRACT double — its real implementation belongs to the host
 // (akao pins it against real IndexedDB in its conformance tier).
-function makeDB({ browser = false } = {}) {
+function makeDB({ engine = "kv" } = {}) {
     const lives = memoryStore()
     const driver = diskDriver(diskRoot())
     // `hashes` and `metadata` are the two answers the HOST owes the statics
@@ -30,7 +30,8 @@ function makeDB({ browser = false } = {}) {
             dev: false
         }),
         lives: { store: lives },
-        collections: collections({ browser, sql: async () => sqlite(), kv: async () => memoryStore() })
+        // The host injects ONE engine, and that is what picks it — no realm flag.
+        collections: collections(engine === "sql" ? { sql: async () => sqlite() } : { kv: async () => memoryStore() })
     })
     return { DB, lives, driver, published }
 }
@@ -83,12 +84,12 @@ test("local: peek/put/del round-trip (memo-only without localStorage)", () => {
 // One body of assertions; the browser run hits a REAL SQLite, the node run
 // hits the kv contract double. Parity here is the same law the filter
 // conformance pins — engines differ, meaning may not.
-for (const [label, browser] of [
-    ["REAL SQLite engine", true],
-    ["kv contract engine", false]
+for (const [label, engine] of [
+    ["REAL SQLite engine", "sql"],
+    ["kv contract engine", "kv"]
 ]) {
     test(`collections (${label}): CRUD + find ordered by _id`, async () => {
-        const { DB } = makeDB({ browser })
+        const { DB } = makeDB({ engine })
         assert.throws(() => DB.get("Swaps!"), /not a valid collection name/)
         assert.throws(() => DB.get("c1").get("x").put(42), /documents/)
         await DB.get("c1").get("b").put({ n: 2 })
@@ -103,7 +104,7 @@ for (const [label, browser] of [
     })
 
     test(`collections (${label}): find().on() delivers now and after every settled write`, async () => {
-        const { DB } = makeDB({ browser })
+        const { DB } = makeDB({ engine })
         await DB.get("c2").get("a").put({ kind: "swap", n: 1 })
         const deliveries = []
         const off = await DB.get("c2")

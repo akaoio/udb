@@ -77,7 +77,7 @@ const DB = createDB({
         browser, dev
     }),
     lives: { store },                      // a chain-store (get/put/del/once/on/map + ready)
-    collections: collections({ browser, sql, kv })  // sql: SQLite-like handle; kv: chain-store
+    collections: collections({ sql, kv })  // whichever you inject is the engine — sql wins if both; kv: chain-store
 })
 ```
 

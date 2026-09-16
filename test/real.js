@@ -17,20 +17,22 @@
  * documented CONTRACT stand-in — its real implementation is the host's
  * (akao pins it against real IndexedDB in its conformance tier).
  */
-import { DatabaseSync } from "node:sqlite"
+import { nodeDatabase } from "../src/sqlite/node.js"
 import { mkdtempSync, promises as fs } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, dirname } from "node:path"
 import { webcrypto } from "node:crypto"
 
+/**
+ * A real in-memory database, through the package's OWN engine.
+ *
+ * This used to be a hand-written handle over `node:sqlite` — a second
+ * implementation of the shape `collections` consumes, living in the test folder,
+ * which is exactly the kind of copy that agrees on the day it is written. Since
+ * 0.4.0 the engine is part of the package, so the suite uses it.
+ */
 export function sqlite() {
-    const db = new DatabaseSync(":memory:")
-    return {
-        exec: async (sql) => db.exec(sql),
-        run: async (sql, params = []) => db.prepare(sql).run(...params),
-        get: async (sql, params = []) => db.prepare(sql).get(...params),
-        all: async (sql, params = []) => db.prepare(sql).all(...params)
-    }
+    return nodeDatabase({ path: ":memory:" })
 }
 
 export function diskRoot() {
