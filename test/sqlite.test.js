@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { mkdtempSync, rmSync, existsSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { sqlite, VERBS, LOCAL_ONLY } from "../src/sqlite/index.js"
+import { sqlite, engine, VERBS, LOCAL_ONLY } from "../src/sqlite/index.js"
 import { nodeDatabase } from "../src/sqlite/node.js"
 import { wasmDatabase } from "../src/sqlite/wasm.js"
 import { remoteDatabase } from "../src/sqlite/remote.js"
@@ -212,6 +212,25 @@ test("the door picks the engine from what the realm HAS", async () => {
     const remote = await sqlite({ dispatch: async () => ({}) })
     assert.equal(remote.local, false, "a dispatch means the database is somewhere else")
     for (const verb of VERBS) assert.equal(typeof remote[verb], "function", `the remote handle answers ${verb}`)
+})
+
+test("an engine is resolved ONCE and opens databases synchronously after that", async () => {
+    // The split exists because a store that opens a database per symbol, lazily,
+    // from inside synchronous readers cannot await — and making it await moves
+    // that await into every call site beneath it.
+    const open = await engine()
+    const first = open({ path: join(HERE, "one.db") })
+    const second = open({ path: join(HERE, "two.db") })
+    assert.notEqual(first, second, "two databases from one engine")
+    assert.equal(typeof first.prepare, "function", "and the handle is the same shape the door hands back")
+    await first.exec("CREATE TABLE a (x)")
+    await second.exec("CREATE TABLE b (x)")
+    assert.deepEqual((await first.all("SELECT name FROM sqlite_master")).map((row) => row.name), ["a"], "each one is its own file")
+    await first.close()
+    await second.close()
+
+    const remote = (await engine({ dispatch: async () => ({}) }))({ name: "akao" })
+    assert.equal(remote.local, false, "the remote engine resolves the same way and also opens synchronously")
 })
 
 test("a remote handle opens before its first query and carries the database name", async () => {
