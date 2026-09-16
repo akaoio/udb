@@ -48,11 +48,27 @@ async function deploy(driver, published, name, body) {
     published.set(`statics/${name}.json`, (await contentHash(bytes, `${name}.json`)).v1)
 }
 
+/** The four methods this package calls, and nothing more (src/contract.js). */
+const bareDriver = () => ({ readBytes: async () => null, writeBytes: async () => ({}), remove: async () => {}, entries: async () => [] })
+
 test("the engine refuses to be built without the host's two answers", () => {
     // A default would be the engine guessing one host's spelling, and the
     // guess would be invisible: every read would quietly stop validating.
-    assert.throws(() => statics({ load: async () => {}, driver: {}, infohash: async () => {}, browser: false, dev: false }), /hashes/)
-    assert.throws(() => statics({ load: async () => {}, driver: {}, infohash: async () => {}, hashes: async () => {}, browser: false, dev: false }), /metadata/)
+    assert.throws(() => statics({ load: async () => {}, driver: bareDriver(), infohash: async () => {}, browser: false, dev: false }), /hashes/)
+    assert.throws(() => statics({ load: async () => {}, driver: bareDriver(), infohash: async () => {}, hashes: async () => {}, browser: false, dev: false }), /metadata/)
+})
+
+test("an injected engine of the wrong SHAPE is refused at wiring, naming what is missing", () => {
+    // This test used to pass `driver: {}` — an empty object — and nothing said a
+    // word, because the shape was never checked. The first read would have thrown
+    // `driver.readBytes is not a function` from inside this package, with the
+    // cause in the host's wiring.
+    const whole = { load: async () => {}, infohash: async () => {}, hashes: async () => {}, metadata: () => false, browser: false, dev: false }
+    assert.throws(() => statics({ ...whole, driver: {} }), /driver injected into statics\(\) is missing readBytes\(\), writeBytes\(\), remove\(\), entries\(\)/)
+    const { entries, ...three } = bareDriver()
+    assert.throws(() => statics({ ...whole, driver: three }), /missing entries\(\)/, "and it names the ONE that is missing, not the whole list")
+    assert.throws(() => statics({ ...whole, driver: null }), /needs a driver object/)
+    assert.throws(() => statics({ ...whole, driver: bareDriver(), load: "nope" }), /needs load to be a function/)
 })
 
 test("an at-rest body proves itself and serves without the body tiers", async () => {
