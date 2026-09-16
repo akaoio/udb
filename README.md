@@ -66,7 +66,7 @@ Each engine's shape is checked **at wiring**, not at the first read, and a refus
 
 | injected | UDB calls | checked in |
 |---|---|---|
-| `driver` | `readBytes` `writeBytes` `remove` `entries` | `statics()` |
+| `driver` | `readBytes` `writeBytes` `remove` `entries`, and **`scope`** (a non-empty string naming WHICH store it reads) | `statics()` |
 | `load`, `infohash`, `hashes`, `metadata` | (functions) | `statics()` |
 | `lives.store` | `get` `del` | `createDB()` |
 | `collections({ sql, kv })` | one of the two | `collections()` |
@@ -83,7 +83,7 @@ import { createDB, statics, collections } from "@akaoio/udb"
 const DB = createDB({
     statics: statics({
         load,        // (path, {fresh, quiet}) → data — your tiered loader (HTTP/disk/P2P)
-        driver,      // { readBytes, writeBytes, remove, entries } — OPFS, node:fs, anything
+        driver,      // { scope, readBytes, writeBytes, remove, entries } — OPFS, node:fs, anything
         infohash,    // (bytes, name) → { v1 } — the content address your build publishes
         hashes,      // (path) → { ok, status, hash } — the hash your ORIGIN states for that path
         metadata,    // (name) → true when the file describes others (your sidecars)

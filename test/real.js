@@ -42,6 +42,10 @@ export function diskRoot() {
 export function diskDriver(root) {
     const at = (path) => join(root, ...path)
     return {
+        // WHICH store this driver reads and writes — part of the contract since
+        // 0.10.0, so a cache inside UDB can tell two trees apart without the host
+        // stamping every entry itself.
+        scope: root,
         readBytes: async (path) => {
             try {
                 return new Uint8Array(await fs.readFile(at(path)))
