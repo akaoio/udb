@@ -142,5 +142,6 @@ export { match, compile } from "./filter.js"
 export { collections } from "./collections.js"
 export { statics } from "./statics.js"
 export { Local } from "./local.js"
+export { sqlite, VERBS as SQL_VERBS, nodeDatabase, wasmDatabase, remoteDatabase, WASM_ASSETS } from "./sqlite/index.js"
 export { walk } from "./walk.js"
 export default createDB

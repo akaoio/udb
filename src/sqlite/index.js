@@ -1,0 +1,72 @@
+/**
+ * The SQLite door — one contract, an engine per realm (akao #851).
+ *
+ * SQL is a LANGUAGE, and it is the same language in every realm this door runs
+ * in. What differs is who executes it: the runtime's native build on Node, a
+ * WASM build over OPFS in a browser worker, and — on a page, which cannot hold
+ * the OPFS handle at all — a proxy to that worker. Three engines, one spelling:
+ *
+ *     exec(sql, params?)   → rows, or [] for a write
+ *     all(sql, params?)    → rows
+ *     get(sql, params?)    → one row, or null
+ *     run(sql, params?)    → { changes, lastId }
+ *     batch(queries)       → one result per query, in ONE transaction
+ *     transaction(fn)      → fn's value; fn gets a SYNCHRONOUS handle
+ *     close()
+ *
+ * ── Why this belongs to UDB and not to each host ───────────────────────────
+ *
+ * UDB already defines collections and compiles a filter into `WHERE
+ * json_extract(…)`, so it has always spoken SQL — while every host had to write
+ * the engine for BOTH realms itself. That is one law with a house per host, and
+ * `local.js` here has carried a realm-specific engine (localStorage) since the
+ * beginning, so there was never a rule keeping engines out — only an asymmetry
+ * nobody had written down.
+ *
+ * ── What is still the host's ────────────────────────────────────────────────
+ *
+ * Two things, and both because they are not about SQL:
+ *
+ *   • the WASM module — a page has no module resolution, so the host's builder
+ *     copies the files `assets.js` declares and its worker loads them; the
+ *     initialised module arrives here as a parameter.
+ *   • the transport — how a page reaches its worker is the host's own thread
+ *     machinery, injected as `dispatch`.
+ *
+ * ── `transaction(fn)` is the atomic unit, and `fn` must be synchronous ─────
+ *
+ * Both local engines hand `fn` a synchronous handle and refuse a promise. An
+ * `await` between BEGIN and COMMIT gives the event loop away while the
+ * transaction is open, and anything else reaching that connection in the window
+ * lands inside it — a write lost, or rolled back, with nothing in any log to say
+ * so. Across a transport the function cannot travel at all, so the remote handle
+ * refuses by name and points at `batch`, which is the same atomicity as data.
+ */
+import { NODE } from "../env.js"
+import { nodeDatabase } from "./node.js"
+import { wasmDatabase } from "./wasm.js"
+import { remoteDatabase } from "./remote.js"
+
+/** The verbs every engine answers — exported so a conformance suite needs no list of its own. */
+export const VERBS = ["exec", "all", "get", "run", "batch", "transaction", "close"]
+
+/**
+ * Open a database with whichever engine this realm can run.
+ *
+ * The choice is made from what is AVAILABLE, not from a realm flag alone: a
+ * worker holding the `sqlite3` module runs the WASM engine, a page with a
+ * `dispatch` gets the proxy, Node gets the native build. A browser context with
+ * neither is refused out loud — the alternative is an in-memory database that
+ * silently forgets everything on reload.
+ */
+export function sqlite({ name = "udb", path, pragmas = [], sqlite3 = null, dispatch = null } = {}) {
+    if (sqlite3) return wasmDatabase({ sqlite3, name, pragmas })
+    if (dispatch) return remoteDatabase({ dispatch, name })
+    if (NODE) return nodeDatabase({ path: path ?? `${name}.db`, pragmas })
+    throw new Error("sqlite: in a browser this door needs either an initialised `sqlite3` module (inside a worker) or a `dispatch` to one — opening an in-memory database instead would lose every write on reload")
+}
+
+export { nodeDatabase, wasmDatabase, remoteDatabase }
+export { WASM_ASSETS } from "./assets.js"
+export { statements, multiple } from "./statements.js"
+export default sqlite
