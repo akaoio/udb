@@ -30,6 +30,7 @@
  */
 import { GatewayNode } from "./gateway.js"
 import { Local } from "./local.js"
+import { STORE, requires } from "./contract.js"
 
 // Plain-data deep clone that simply drops functions — announce fragments are
 // data by definition, and the transport must never share references with the
@@ -61,6 +62,11 @@ function localKey(path) {
  * null).
  */
 export function createDB({ statics, lives, collections, local = Local }) {
+    // The `lives` store is checked here rather than at the first put: a store
+    // without `del` answered `DB.wipe()` with a TypeError from inside this file
+    // (see contract.js). `statics` and `collections` check their own injections
+    // where they are built.
+    requires(lives?.store, STORE, "lives.store", "createDB()")
     const MOUNTS = {
         statics: {
             name: "statics",
@@ -144,4 +150,5 @@ export { statics } from "./statics.js"
 export { Local } from "./local.js"
 export { sqlite, engine as sqliteEngine, VERBS as SQL_VERBS, LOCAL_ONLY as SQL_LOCAL_ONLY, WASM_ASSETS } from "./sqlite/index.js"
 export { walk } from "./walk.js"
+export { DRIVER, STORE, requires, requiresFunction } from "./contract.js"
 export default createDB

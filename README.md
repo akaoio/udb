@@ -60,6 +60,19 @@ Measured on one box, 20 000 writes + 20 000 reads: held statements **115.7 ms**,
 
 One meaning, two backends: `match(doc, filter)` (in-process matcher) and `compile(filter)` (SQL WHERE over `json_extract`). Ops `$eq $ne $gt $gte $lt $lte $in $nin`, combinators `&`/`|`, dot paths, honest null-vs-missing.
 
+## What UDB requires of what you inject
+
+Each engine's shape is checked **at wiring**, not at the first read, and a refusal names the missing method and the door that needed it:
+
+| injected | UDB calls | checked in |
+|---|---|---|
+| `driver` | `readBytes` `writeBytes` `remove` `entries` | `statics()` |
+| `load`, `infohash`, `hashes`, `metadata` | (functions) | `statics()` |
+| `lives.store` | `get` `del` | `createDB()` |
+| `collections({ sql, kv })` | one of the two | `collections()` |
+
+The lists are exactly what this package **calls** — no wider. akao's own byte driver has ten methods because its file door needs them; demanding ten here would impose a law this package does not live by, and the next host would implement six methods to satisfy a contract nobody reads. Two contracts, two homes.
+
 ## The host injects what only it can know
 
 UDB imports nothing from its host — the SQLite engine it now carries is reached through parameters too (the module, or a transport). What a host still wires in is everything that is about THIS host rather than about a realm: how bytes are loaded and stored, what a content address is, how a realm announces a write.

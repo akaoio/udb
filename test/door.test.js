@@ -36,6 +36,13 @@ function makeDB({ engine = "kv" } = {}) {
     return { DB, lives, driver, published }
 }
 
+test("a lives store of the wrong shape is refused at createDB, by name", () => {
+    // Without this, a store missing `del` answered DB.wipe() with a TypeError
+    // from inside the package, and a store missing `get` failed on the first read.
+    assert.throws(() => createDB({ statics: {}, lives: { store: {} }, collections: () => ({}) }), /lives.store injected into createDB\(\) is missing get\(\), del\(\)/)
+    assert.throws(() => createDB({ statics: {}, lives: {}, collections: () => ({}) }), /needs a lives.store object/)
+})
+
 test("grammar: array key is sugar for chaining", () => {
     const { DB } = makeDB()
     const a = DB.get(["statics", "x", "y.json"])
