@@ -113,7 +113,14 @@ export const NEEDS = {
     // have to be named after one door's argument shape.
     "createDB().lives": { required: ["store"], door: "createDB()", as: { store: "lives.store" } },
     "collections()": { oneOf: [["sql", "kv"]] },
-    "replica()": { required: ["replicas"] }
+    // `realm` is how a door says it cannot exist everywhere. Replication
+    // supervises a process, so a browser realm wires nothing for it — and a host
+    // that serves both realms must be able to ASK which doors apply to the one it
+    // is in. Without it, "this host answers every door" is a question with no
+    // true answer in a browser, and a host would have to keep its own list of
+    // which doors to skip: the second home this registry exists to prevent.
+    // A door with no `realm` belongs to every realm.
+    "replica()": { required: ["replicas"], realm: "node" }
 }
 
 /** The byte driver, as the statics engine and `walk` use it. */

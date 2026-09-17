@@ -19,6 +19,6 @@ console.log("\nDoors — which ports each one needs at wiring:\n")
 for (const [door, needs] of Object.entries(NEEDS)) {
     const required = (needs.required ?? []).map((name) => needs.as?.[name] ?? name)
     const either = (needs.oneOf ?? []).map((group) => `one of ${group.join(" / ")}`)
-    console.log(`  ${door}  ${[...required, ...either].join(", ")}`)
+    console.log(`  ${door}${needs.realm ? ` [${needs.realm} only]` : ""}  ${[...required, ...either].join(", ")}`)
 }
 console.log("")
