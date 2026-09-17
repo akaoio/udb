@@ -71,17 +71,24 @@ test("an injected engine of the wrong SHAPE is refused at wiring, naming what is
     assert.throws(() => statics({ ...whole, driver: bareDriver(), load: "nope" }), /needs load to be a function/)
 })
 
-test("two stores, one path, no deployed hash — neither reads the other's bytes", async () => {
-    // The hole this closes, measured in the host (akao #705): a memo keyed by PATH
-    // alone answers a read for a DIFFERENT store when the path matches and no
-    // deployed hash exists to tell them apart. A suite that stages two trees, a
-    // fork run pointed at one site's build, a worker that inherited another root —
-    // all of them are two stores in one realm.
+test("two engines over two stores each read their own bytes, end to end", async () => {
+    // What this pins: two engines, each over its own store, read their own bytes
+    // end to end — with a loader that reaches the at-rest copy itself, which is the
+    // shape akao's `FS.load` really has.
     //
-    // The loader here reaches the at-rest bytes itself, which is the shape akao's
-    // FS.load really has, and the detail that makes this the reproduction rather
-    // than a different bug: with a loader that answers nothing, the unvalidated
-    // branch memoizes nothing and the cross-store read cannot happen at all.
+    // What it does NOT pin, measured 2026-09-17 by baiting `keyOf` down to the path
+    // alone: it passes either way, so it is not the guard for the memo key. Two
+    // reasons, and the second is the decisive one — (a) the 404 branch DELETES the
+    // key before it reads anything (that line dates from the first commit, so the
+    // "no deployed hash" story this case was named after was never the leak), and
+    // (b) `memo` lives inside `statics()`, so two engines have two memos and cannot
+    // mix by construction, whatever the key is.
+    //
+    // The leak is ONE engine whose driver moves between stores, and the assertion
+    // that holds it is "the offline promise is the last body of THIS store" —
+    // `keyOf` without the scope turns that one red. Keeping this case anyway: an
+    // end-to-end read per store is worth measuring, under a name that no longer
+    // promises something else.
     const oneStore = () => {
         const driver = diskDriver(diskRoot())
         const engine = statics({
