@@ -102,6 +102,7 @@ export const PORTS = {
     // paid once for owning a host's naming (`statics.js`, the `.hash` address).
     urlOf: { shape: "function", by: "host", serves: "where a path is published, or nothing when the store IS the origin" },
     parse: { shape: "function", by: "host", serves: "the document these bytes spell, in the host's own vocabulary of extensions" },
+    stringify: { shape: "function", by: "host", serves: "the bytes a document is written down as, in that same vocabulary" },
     tier: { shape: "function", by: "host", serves: "one more source below the store — a swarm, a peer, a mirror" },
     infohash: { shape: "function", by: "host", serves: "the content address of bytes" },
     hashes: { shape: "function", by: "host", serves: "the address a path was PUBLISHED under" },
@@ -136,12 +137,19 @@ export const NEEDS = {
     // required because "is there an origin above this store" is the one question
     // the ladder cannot answer for a host — and a default would answer it wrong
     // for whichever realm was not thought about.
-    "loader()": { required: ["driver", "urlOf"] },
+    // `optional` exists because a door CAN read a port and still work without it,
+    // and until it existed the registry could not say so. A host's conformance walk
+    // reads this table from the outside — akao's does — and with only `required`
+    // there, every optional port it injected looked like a port answered into the
+    // void. The registry was describing the doors it had when it was written, which
+    // is the drift a registry is supposed to prevent (measured the hour `fs()`
+    // landed, by the host's own check going red).
+    "loader()": { required: ["driver", "urlOf"], optional: ["parse", "tier"] },
     // The door needs only the store: an `origin` or `urlOf` is what gives it a
     // network tier, `parse`/`stringify` are what give it a vocabulary, and a host
     // that passes neither gets a door over its own store that speaks JSON — which
     // is a complete, useful door and not a half-wired one.
-    "fs()": { required: ["driver"] },
+    "fs()": { required: ["driver"], optional: ["urlOf", "parse", "stringify", "tier"] },
     // `realm` is how a door says it cannot exist everywhere. Replication
     // supervises a process, so a browser realm wires nothing for it — and a host
     // that serves both realms must be able to ASK which doors apply to the one it
@@ -223,6 +231,11 @@ export function conform(who, wiring = {}) {
     const door = needs.door ?? who
     const label = (name) => needs.as?.[name] ?? name
     for (const name of needs.required ?? []) check(name, wiring[name], door, label(name))
+    // An optional port that IS given is checked exactly like a required one: the
+    // only thing optional means is "absent is allowed". A host that passes a string
+    // where a function belongs must still hear about it at wiring, not from inside
+    // an engine three calls later.
+    for (const name of needs.optional ?? []) if (wiring[name] !== undefined && wiring[name] !== null) check(name, wiring[name], door, label(name))
     for (const group of needs.oneOf ?? []) {
         const given = group.filter((name) => wiring[name] !== undefined && wiring[name] !== null)
         if (!given.length) throw new Error(`UDB: ${door} needs one of ${group.map((name) => `${label(name)} (${PORTS[name].serves})`).join(" or ")} — the host injects one, and which one it gives is what decides the engine`)
