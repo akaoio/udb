@@ -1,7 +1,7 @@
 {
   "_note": "acronym: foreign vocabulary — UDB is an acronym and is spelled UDB everywhere this package OWNS the name. `name` stays lowercase because npm forbids capitals in a package name outright (validate-npm-package-name: \"name can no longer contain capital letters\"), and `repository.url` follows whatever GitHub is serving.",
   "name": "@akaoio/udb",
-  "version": "0.12.1",
+  "version": "0.13.0",
   "description": "The universal data door: one chain grammar over every kind of data — content-addressed statics, sync local kv, live market mirrors, filterable collections with live queries, and a SQLite door with an engine per realm. The door is the law.",
   "type": "module",
   "main": "src/index.js",

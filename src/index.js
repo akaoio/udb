@@ -155,5 +155,10 @@ export { walk } from "./walk.js"
 // a line runs. A server reaches it at `@akaoio/udb/src/replica/index.js`; what is
 // safe for every realm is the POLICY, which is data and imports nothing.
 export { REPLICATED_PRAGMAS, BUSY_MS } from "./replica/pragmas.js"
+// The byte driver door picks its realm the way the SQL door does — by asking
+// what exists, behind a dynamic import — so it is safe in every realm. The
+// conformance kit travels with it: a host injecting its OWN driver runs the same
+// assertions against it, in its own suite.
+export { driver, checkDriver } from "./driver/index.js"
 export { DRIVER, STORE, requires, requiresFunction } from "./contract.js"
 export default createDB

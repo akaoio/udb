@@ -84,6 +84,21 @@ Litestream ships each database's WAL continuously, so the loss window is one syn
 
 Credentials are refused rather than written — Litestream reads them from the environment, and a config file is a thing people paste into issues. A missing binary turns replication off **loudly** and never takes the host process down with it.
 
+## Bytes: bring your own driver, or use ours
+
+```js
+import { driver, checkDriver } from "@akaoio/udb"
+
+const bytes = await driver({ root: "data" })      // node:fs on a server, OPFS in a browser
+await checkDriver(myOwnDriver)                    // does yours keep the same promises?
+```
+
+`driver` is a port, so a host with its own file layer keeps injecting that. What changed is that having one is no longer a precondition: most hosts want documents in a directory, and writing the same four methods against `node:fs` is work every one of them was doing identically — this package had even written it once, in its own test fixtures, which is the clearest evidence it belonged here.
+
+The browser one carries a detail no host should rediscover: **two writes to one path at the same time throw `NoModificationAllowedError`**, because OPFS refuses a second writable while one is open. A driver without a per-path queue passes every test and breaks the day the app gets busy.
+
+`checkDriver(driver)` is the other half of the contract. The registry checks SHAPE — four methods and a scope — and shape is not meaning: a driver whose `readBytes` throws on a miss has every method and still breaks the statics engine, which asks "is there an at-rest copy" on every read. Those meanings used to live only in what the engines happened to expect, so every host discovered them by breaking. Now they are assertions, exported, and a host runs them against its own driver in its own suite.
+
 ## The seam: one law, one registry
 
 **A capability has ONE owner. The other side touches it only through a port, and when a host must influence an owned capability that influence arrives as PARAMETERS — never as a second half of the implementation.** The owner is the side that can state the capability's law without naming the other side: *how to run SQL in this realm* is statable without naming any host, so the engine is UDB's; *which bucket these bytes replicate to* names one deployment, so it is the host's and reaches UDB as an argument.
