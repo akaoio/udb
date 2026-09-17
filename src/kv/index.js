@@ -1,4 +1,5 @@
 import { PORTS, requires } from "../contract.js"
+import { walk } from "../walk.js"
 
 /**
  * A chain-store: documents in a tree, `get(...).put/once/del/map/on`.
@@ -45,7 +46,7 @@ export function chainStore({ driver, root = [] } = {}) {
     const fileOf = (path) => [...root, ...path.slice(0, -1), `${path.at(-1)}.json`]
     const directoryOf = (path) => [...root, ...path]
 
-    const announce = (path, value) => {
+    const tell = (path, value) => {
         for (const callback of watchers.get(keyOf(path)) ?? []) {
             try {
                 callback(value, path)
@@ -54,6 +55,77 @@ export function chainStore({ driver, root = [] } = {}) {
                 // has already settled, and the next subscriber is owed its call.
             }
         }
+    }
+
+    /**
+     * Tell this path's subscribers, then every ANCESTOR that has one.
+     *
+     * An ancestor hears the assembled subtree — the same thing `once()` would
+     * answer it — because that is what it subscribed to. The assembly is paid
+     * for ONLY where somebody is listening: it costs a walk, and a tree with no
+     * subscribers must not pay for one on every write.
+     *
+     * What is deliberately NOT done: notifying paths made of a document's own
+     * FIELDS. A store whose nodes are paths should not decide that `{a: {b: 1}}`
+     * written at `x` also means a write at `x/a/b` — that blurs document and
+     * tree, and nothing has ever subscribed that way.
+     */
+    const announce = async (path, value) => {
+        tell(path, value)
+        for (let depth = path.length - 1; depth > 0; depth--) {
+            const ancestor = path.slice(0, depth)
+            if (!watchers.has(keyOf(ancestor))) continue
+            tell(ancestor, await assemble(ancestor))
+        }
+    }
+
+    /**
+     * Every document under a path, with the path each was found at.
+     *
+     * Through `walk`, which is this package's one primitive for enumerating what
+     * is at rest — a second recursion over the same driver is how two walks
+     * drift apart.
+     */
+    async function under(path, visit) {
+        const base = root.length + path.length
+        let count = 0
+        await walk(driver, directoryOf(path), async (filePath) => {
+            const name = filePath.at(-1)
+            if (typeof name !== "string" || !name.endsWith(".json")) return
+            const relative = [...filePath.slice(base, -1), name.slice(0, -5)]
+            const value = await read([...path, ...relative])
+            if (value === undefined) return
+            count++
+            await visit(value, relative)
+        })
+        return count
+    }
+
+    /**
+     * What a read of a NON-LEAF answers: the subtree, assembled.
+     *
+     * The exact document wins. Failing that, everything stored underneath comes
+     * back as one nested object — because a chain-store is a tree, and a caller
+     * that wrote `pools/<chain>/<address>` four levels down and then asks for
+     * `pools` is asking for the pools, not for nothing.
+     *
+     * This is not a nicety: it is what a real host's store already did, and the
+     * only reason `chainStore` could not replace it. Measured against akao
+     * 2026-09-17 — two of its routes read a branch and render what comes back,
+     * and this store answered `undefined` there.
+     */
+    async function assemble(path) {
+        const exact = await read(path)
+        if (exact !== undefined) return exact
+        let found = false
+        const out = {}
+        await under(path, (value, relative) => {
+            found = true
+            let node = out
+            for (const segment of relative.slice(0, -1)) node = node[segment] ??= {}
+            node[relative.at(-1)] = value
+        })
+        return found ? out : undefined
     }
 
     async function read(path) {
@@ -74,44 +146,39 @@ export function chainStore({ driver, root = [] } = {}) {
         return {
             path,
             get: (segment) => node([...path, ...(Array.isArray(segment) ? segment : [segment])]),
-            once: () => read(path),
+            once: () => assemble(path),
             put: async (value) => {
                 if (!path.length) throw new Error("kv: put() needs a path — the root of a store is not a document")
                 if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("kv: a chain-store holds documents (plain objects)")
                 await driver.writeBytes(fileOf(path), encoder.encode(JSON.stringify(value)))
-                announce(path, value)
+                await announce(path, value)
                 return value
             },
             del: async () => {
                 if (!path.length) throw new Error("kv: del() needs a path — the store's own del() is what empties it")
                 await driver.remove(fileOf(path))
                 await driver.remove(directoryOf(path))
-                announce(path, undefined)
+                await announce(path, undefined)
             },
             /**
-             * Every CHILD document of this node, one level down — the level a
-             * collection is, which is what the `kv` engine enumerates. It reads
-             * what is at rest rather than a list held in memory, so a document
-             * another process wrote into the same directory is seen.
+             * Every document under this node, at ANY depth, with the full path
+             * each was found at — `callback(value, path)`, and the count back.
+             *
+             * At any depth rather than one level, because that is what a prefix
+             * means in a tree and what a real host's store does. A collection's
+             * documents are one level down, so the `kv` engine sees exactly what
+             * it saw before; a caller enumerating a deeper branch now gets the
+             * branch instead of its first floor.
+             *
+             * It reads what is AT REST rather than a list held in memory, so a
+             * document another process wrote into the same directory is seen.
              */
-            map: async (callback) => {
-                const seen = []
-                for (const entry of await driver.entries(directoryOf(path))) {
-                    const name = entry?.name ?? entry
-                    if (typeof name !== "string" || entry?.isDir || !name.endsWith(".json")) continue
-                    const id = name.slice(0, -5)
-                    const value = await read([...path, id])
-                    if (value === undefined) continue
-                    seen.push(id)
-                    await callback(value, [...path, id])
-                }
-                return seen
-            },
+            map: async (callback) => under(path, (value, relative) => callback(value, [...path, ...relative])),
             on: (callback) => {
                 const key = keyOf(path)
                 if (!watchers.has(key)) watchers.set(key, new Set())
                 watchers.get(key).add(callback)
-                read(path).then((value) => {
+                assemble(path).then((value) => {
                     if (value !== undefined) callback(value, path)
                 })
                 return () => watchers.get(key)?.delete(callback)

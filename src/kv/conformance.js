@@ -53,6 +53,26 @@ export async function checkStore(store, { at = "udb-conformance" } = {}) {
         check((await root().get("one").once())?.n === 1, "a node that gained a child must still hold its own value")
         check((await root().get("one").get("deeper").once())?.n === 2, "and the child must be readable")
 
+        // ── a read of a BRANCH assembles the subtree ────────────────────────
+        // The promise this kit did not ask for until 2026-09-17, and its absence
+        // is why it once called two genuinely different stores conformant. A host
+        // that writes `pools/<chain>/<address>` and then reads `pools` is asking
+        // for the pools; a store that answers `undefined` there renders a blank
+        // page, and nothing in a shape check can see it.
+        await root().get("branch").get("deep").get("leaf").put({ id: "leaf", n: 9 })
+        const assembled = await root().get("branch").once()
+        check(assembled?.deep?.leaf?.n === 9, `once() on a node with no document of its own must assemble the subtree under it — got ${JSON.stringify(assembled)}`)
+        const exact = await root().get("one").once()
+        check(exact?.n === 1 && exact.deeper === undefined, "and an exact document still WINS over assembly — a node that holds a value answers with it, not with its children")
+
+        // ── map reaches every depth, not just the first floor ───────────────
+        const deep = []
+        await root().get("branch").map((document, path) => deep.push(path.join("/")))
+        check(
+            deep.some((path) => path.endsWith("deep/leaf")),
+            `map() must visit documents at ANY depth under the path — that is what a prefix means in a tree (saw ${JSON.stringify(deep)})`
+        )
+
         // ── map enumerates the CHILDREN, and names them ─────────────────────
         await root().get("two").put({ id: "two", n: 3 })
         const seen = []
