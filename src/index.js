@@ -169,4 +169,7 @@ export { DRIVER, STORE, requires, requiresFunction } from "./contract.js"
 // no export writes the same two lines, and then there are two homes for one law
 // (akao had them, byte for byte, until 2026-09-17).
 export { detectEnvironment, NODE, BROWSER } from "./env.js"
+// The loader port's meaning, for the one port whose contract was never written
+// anywhere — a miss ANSWERS undefined, and the engine asks that on every read.
+export { checkLoad } from "./statics/conformance.js"
 export default createDB

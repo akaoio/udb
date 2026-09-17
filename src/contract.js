@@ -92,7 +92,11 @@ export const PORTS = {
         by: "host, or udb's own",
         serves: "bytes in one store of this realm"
     },
-    load: { shape: "function", by: "host", serves: "the bytes at a path, through whatever tiers the host has" },
+    // NOT bytes: the statics engine memoizes what this answers and hands it to
+    // callers, so it is the PARSED document. The registry said "bytes" until
+    // 2026-09-17 — the one entry here that was describing a port by what the one
+    // beside it does. `checkLoad()` states the rest.
+    load: { shape: "function", by: "host", serves: "the parsed document at a path, through whatever tiers the host has" },
     infohash: { shape: "function", by: "host", serves: "the content address of bytes" },
     hashes: { shape: "function", by: "host", serves: "the address a path was PUBLISHED under" },
     metadata: { shape: "function", by: "host", serves: "whether a path is a sidecar rather than data" },
