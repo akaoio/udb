@@ -127,3 +127,46 @@ test("it refuses a wiring with no open(root), by name", () => {
     // missing port and which door asked for it, the same way every other door does.
     assert.throws(() => realm({}), /open/)
 })
+
+test("a root that has ALREADY arrived is the root — not the fallback, and not a default", () => {
+    // The regression this exists for: an entry point may put its root where the host
+    // collects them and then simply start working, without ever calling `declare`. A
+    // suite pointing itself at a built tree does exactly that. Without the question,
+    // such a realm answers the fallback and reads the wrong tree — and the failure
+    // names no tree: measured on the host that adopted this door, where a file plainly
+    // present in the built tree came back as "missing from the build".
+    fresh()
+    let collected = "/tmp/arrived-here"
+    const door = realm({ open: spyOpen([]), arrived: () => collected })
+    assert.equal(door.current(), "/tmp/arrived-here", "the arrived root wins over the fallback")
+})
+
+test("and it is asked at FIRST USE, so a root arriving after the import still counts", () => {
+    // A value captured at import time would read an empty collection point and then be
+    // wrong for the rest of the process — which is why this is a question.
+    fresh()
+    let collected = null
+    const door = realm({ open: spyOpen([]), arrived: () => collected })
+    collected = "/tmp/arrived-late" // after the door was built, before anything read
+    assert.equal(door.current(), "/tmp/arrived-late")
+})
+
+test("a realm that STARTED from an arrived root has no refusal window at all", async () => {
+    // The refusal watches for a root arriving AFTER the fallback was read. A realm
+    // that began with an arrived root was never on the fallback, so a second root
+    // arriving is an ordinary re-declaration — and refusing it would break every
+    // process that legitimately moves on.
+    fresh()
+    const door = realm({ open: spyOpen([]), arrived: () => "/tmp/first" })
+    await door.driver.readBytes(["a"]) // a real read, against the arrived root
+    door.declare("/tmp/second", { arrived: true }) // must not throw
+    assert.equal(door.current(), "/tmp/second")
+})
+
+test("with nothing arrived, the fallback still stands — and the refusal still fires", async () => {
+    fresh()
+    const door = realm({ open: spyOpen([]), arrived: () => null, fallback: "/tmp/fell-back" })
+    assert.equal(door.current(), "/tmp/fell-back")
+    await door.driver.readBytes(["a"])
+    assert.throws(() => door.declare("/tmp/elsewhere", { arrived: true }), /\/tmp\/fell-back/)
+})
