@@ -96,9 +96,11 @@ export const PORTS = {
     infohash: { shape: "function", by: "host", serves: "the content address of bytes" },
     hashes: { shape: "function", by: "host", serves: "the address a path was PUBLISHED under" },
     metadata: { shape: "function", by: "host", serves: "whether a path is a sidecar rather than data" },
-    store: { shape: "object", methods: ["get", "del"], by: "host", serves: "a chain-store for the lives mount" },
+    // `chainStore()` answers both of these now, over the driver port, and
+    // `checkStore()` is the behavioural half that two methods cannot state.
+    store: { shape: "object", methods: ["get", "del"], by: "host, or udb's own", serves: "a chain-store for the lives mount" },
     sql: { shape: "function", by: "host", serves: "open the SQL door a collection is kept in" },
-    kv: { shape: "function", by: "host", serves: "open the chain-store a collection is kept in" },
+    kv: { shape: "function", by: "host, or udb's own", serves: "open the chain-store a collection is kept in" },
     replicas: { shape: "function", by: "host", serves: "where a database of a replicated directory ships to, by id" }
 }
 

@@ -99,6 +99,25 @@ The browser one carries a detail no host should rediscover: **two writes to one 
 
 `checkDriver(driver)` is the other half of the contract. The registry checks SHAPE — four methods and a scope — and shape is not meaning: a driver whose `readBytes` throws on a miss has every method and still breaks the statics engine, which asks "is there an at-rest copy" on every read. Those meanings used to live only in what the engines happened to expect, so every host discovered them by breaking. Now they are assertions, exported, and a host runs them against its own driver in its own suite.
 
+## Documents in a tree: the chain-store
+
+```js
+import { driver, chainStore, checkStore, createDB, collections } from "@akaoio/udb"
+
+const store = chainStore({ driver: await driver({ root: "data" }) })
+
+const DB = createDB({ statics, lives: { store }, collections: collections({ kv: () => store }) })
+await checkStore(myOwnStore)     // does yours answer what the doors above ask?
+```
+
+Two ports want a chain-store — `lives.store` and the `kv` engine of `collections` — and this package shipped neither, so "bring a chain-store" was asked of every host on top of "bring a byte driver".
+
+It persists **through the driver port**, so one implementation serves both realms: the realm question was already answered once by `driver()`, and answering it again here — an IndexedDB engine beside a file engine — would be two more things to keep in step and two more places for "what does a miss mean" to drift.
+
+**One document per file.** A document at `["a","b"]` is the bytes at `a/b.json`, and the children of `["a","b"]` live in `a/b/` — a node may hold a value and have children at the same time. The engine this replaces kept a collection in one JSON file and rewrote the whole thing on every save, which is fine until it is not, and is silently quadratic in a directory that grows.
+
+`checkStore(store)` is the meaning half, and the gap it closes is wider than the driver's: the registry says a store has `get` and `del`, while the doors above chain `get(a).get(b)`, pass arrays to `get`, read `once()`, enumerate with `map(callback)` and key their rows off `path.at(-1)`. None of that was written anywhere, so a host wiring its own store discovered it by having a collection come back empty.
+
 ## The seam: one law, one registry
 
 **A capability has ONE owner. The other side touches it only through a port, and when a host must influence an owned capability that influence arrives as PARAMETERS — never as a second half of the implementation.** The owner is the side that can state the capability's law without naming the other side: *how to run SQL in this realm* is statable without naming any host, so the engine is UDB's; *which bucket these bytes replicate to* names one deployment, so it is the host's and reaches UDB as an argument.
