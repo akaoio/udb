@@ -28,16 +28,24 @@ import { walk } from "./walk.js"
  * subtree without this function opening it — the difference between "do not copy
  * node_modules" costing nothing and costing a full walk.
  *
- * The result names what happened rather than answering a bare boolean, because a
- * skipped copy and a completed copy are different facts and a caller that cannot
- * tell them apart will report one as the other.
+ * The result COUNTS rather than answering a bare boolean, because a skipped copy
+ * and a completed copy are different facts and a caller that cannot tell them
+ * apart will report one as the other. A failure is neither: it throws.
+ *
+ * ── Why the failure names the LEAF ──────────────────────────────────────────
+ *
+ * A recursive copy that reports the root of the walk tells a reader which command
+ * was run, which they already knew, and hides the one thing they need — WHICH file
+ * could not be written. So the leaf wraps its own failure, once, and every level
+ * above rethrows it untouched. akao measured the cost of the other way: a build log
+ * naming the root of a vendor tree, for a package that had moved one file inside it.
  */
 export async function copyTree(driver, from, to, { skip } = {}) {
     if (skip?.(from)) return { copied: 0, skipped: 1 }
     let copied = 0
     let skipped = 0
     if (await driver.isDir(from)) {
-        await driver.mkdir(to)
+        await atLeaf(to, () => driver.mkdir(to))
         for (const { name } of await driver.entries(from)) {
             const result = await copyTree(driver, [...from, name], [...to, name], { skip })
             copied += result.copied
@@ -45,8 +53,21 @@ export async function copyTree(driver, from, to, { skip } = {}) {
         }
         return { copied, skipped }
     }
-    await driver.copyFile(from, to)
+    await atLeaf(from, () => driver.copyFile(from, to), to)
     return { copied: 1, skipped: 0 }
+}
+
+/** One wrap, at the level that actually failed; the marker is how a re-wrap is seen. */
+const MARK = "[FS]"
+async function atLeaf(path, body, also) {
+    try {
+        return await body()
+    } catch (error) {
+        const message = String(error?.message ?? error)
+        if (message.includes(MARK)) throw error
+        const where = also ? `${path.join("/")} → ${also.join("/")}` : path.join("/")
+        throw new Error(`${MARK} copy failed at ${where}: ${message}`, { cause: error })
+    }
 }
 
 /**

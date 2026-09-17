@@ -27,20 +27,42 @@ import { copyTree, matches, find as findFirst, walk } from "./tree.js"
  *                  which is what "no vocabulary of my own" means.
  *   a SOURCE       `tier` — one more place to look below the store.
  *
- * ── The ergonomics, stated once because they are a choice ───────────────────
+ * ── The ergonomics, and the bill that decided them ──────────────────────────
  *
  * A QUESTION answers: `exists`, `isDir`, `list`, `load`, `find` never throw, and
- * an absent path is an ordinary answer rather than an incident. A COMMAND reports
- * and answers whether it happened: `write`, `remove`, `move`, `ensure`, `copy`
- * log the failure with the path in it and answer `false`, because a caller that
- * has to wrap every write in a try/catch writes the same five lines everywhere
- * and eventually writes an empty catch instead.
+ * an absent path is an ordinary answer rather than an incident.
  *
- * This is not the same posture as `conform()`, which refuses a WIRING by name and
- * loudly. The difference is the moment: a wiring mistake is a programming error
- * discovered once, at boot, and must stop the program; a write that failed is a
- * fact about a disk, at any time, and the program is supposed to survive knowing
- * it.
+ * A COMMAND THROWS. `write`, `remove`, `move`, `ensure`, `copy`, `download` fail
+ * loudly, wrapped ONCE, naming the verb and the path.
+ *
+ * The first draft of this file did the opposite — reported and answered `false` —
+ * on the reasoning that a caller should not have to wrap every write in a
+ * try/catch. akao had already paid for that reasoning twice, and the bills are
+ * why this paragraph exists rather than the other one:
+ *
+ *   the build step that could not fail   `FS.copy` used to console.error and
+ *   (akao #858)                          answer undefined, so every vendor copy
+ *                                        in the build became a step incapable of
+ *                                        failing. A package that moved one of its
+ *                                        files printed one red line into a
+ *                                        thousand-line log and exited 0 — and the
+ *                                        page 404'd that module at the moment it
+ *                                        was first needed, which is neither build
+ *                                        time nor test time.
+ *   a bug reported as a fact about the   `remove()` caught a TypeError from a
+ *   disk (akao's FS/driver.js)           malformed path and answered `false`,
+ *                                        while its own docblock defined `false` as
+ *                                        "the path is still there". A defect in
+ *                                        the caller, dressed as news about the
+ *                                        filesystem.
+ *
+ * So the optional case is a GUARD at the call site — ask `exists` first — never a
+ * silence inside the door. That is one line where the caller knows it is optional,
+ * against a whole class of failures that cannot surface anywhere else.
+ *
+ * This is the same posture `conform()` takes for a wiring, and for a reason that
+ * turns out to be one reason: both are cases where the only alternative to
+ * refusing is a program that keeps running while being wrong.
  */
 export function fs(wiring = {}) {
     conform("fs()", wiring)
@@ -52,9 +74,23 @@ export function fs(wiring = {}) {
     const where = urlOf ?? (origin ? (path) => `${origin}/${path.join("/")}` : () => null)
     const load = loader({ driver, urlOf: where, parse, tier, fetch: fetcher })
 
-    const failed = (verb, path, error) => {
-        console.error(`FS.${verb} failed at ${Array.isArray(path) ? path.join("/") : path}:`, error?.message ?? error)
-        return false
+    /**
+     * Wrap ONCE, at the leaf, naming the verb and the path.
+     *
+     * Once, because a recursive verb that wraps at every level produces a message
+     * whose prefix is repeated as many times as the tree was deep, and the reader
+     * then cannot see which level actually failed. The marker is how a re-wrap is
+     * recognised.
+     */
+    const MARK = "[FS]"
+    const loudly = async (verb, path, body) => {
+        try {
+            return await body()
+        } catch (error) {
+            const message = String(error?.message ?? error)
+            if (message.includes(MARK)) throw error
+            throw new Error(`${MARK} ${verb} failed at ${Array.isArray(path) ? path.join("/") : path}: ${message}`, { cause: error })
+        }
     }
 
     return {
@@ -80,76 +116,45 @@ export function fs(wiring = {}) {
          * through. Refuses an object bound for a path with no extension, because
          * that is the shape that silently writes "[object Object]" to disk.
          */
-        write: async (path, content) => {
-            if (content === undefined || content === null) return false
-            try {
+        write: (path, content) =>
+            loudly("write", path, async () => {
+                // Nothing to write is not a failure and not a write: a caller
+                // building a document conditionally passes undefined on purpose.
+                if (content === undefined || content === null) return false
                 if (content instanceof Uint8Array) {
                     await driver.writeBytes(path, content)
                     return true
                 }
                 const name = path.at(-1)
-                if (typeof content === "object" && !String(name).includes(".")) return failed("write", path, new Error(`an object needs an extension to be serialised by — "${name}" has none`))
+                // The shape that silently puts "[object Object]" on a disk and is
+                // found weeks later by whoever reads it back.
+                if (typeof content === "object" && !String(name).includes(".")) throw new Error(`an object needs an extension to be serialised by — "${name}" has none`)
                 await driver.writeBytes(path, stringify(content, name))
                 return true
-            } catch (error) {
-                return failed("write", path, error)
-            }
-        },
-        remove: async (path) => {
-            try {
-                await driver.remove(path)
-                return true
-            } catch (error) {
-                return failed("remove", path, error)
-            }
-        },
-        move: async (from, to) => {
-            try {
-                await driver.move(from, to)
-                return true
-            } catch (error) {
-                return failed("move", from, error)
-            }
-        },
-        ensure: async (path) => {
-            try {
-                await driver.mkdir(path)
-                return true
-            } catch (error) {
-                return failed("ensure", path, error)
-            }
-        },
-        /** Copy a file or a whole subtree; answers what happened, or false. */
-        copy: async (from, to, options = {}) => {
-            try {
-                return await copyTree(driver, from, to, options)
-            } catch (error) {
-                return failed("copy", from, error)
-            }
-        },
+            }),
+        remove: (path) => loudly("remove", path, async () => (await driver.remove(path), true)),
+        move: (from, to) => loudly("move", from, async () => (await driver.move(from, to), true)),
+        ensure: (path) => loudly("ensure", path, async () => (await driver.mkdir(path), true)),
+        /** Copy a file or a whole subtree, and say what happened. */
+        copy: (from, to, options = {}) => loudly("copy", from, () => copyTree(driver, from, to, options)),
         /**
          * Fetch a URL into the store. The name comes from the path when it carries
          * one, and from the URL when it does not — a caller that passes a directory
          * should not have to repeat what the server already said the file is called.
          */
-        download: async (url, path = []) => {
-            let parsed
-            try {
-                parsed = new URL(url)
-            } catch {
-                return failed("download", url, new Error("not a URL"))
-            }
-            const last = path.at(-1)
-            const target = String(last ?? "").includes(".") ? path : [...path, parsed.pathname.split("/").filter(Boolean).pop() || "download"]
-            try {
+        download: (url, path = []) =>
+            loudly("download", url, async () => {
+                const parsed = new URL(url) // a bad URL is the caller's bug, and it says so
+                const last = path.at(-1)
+                const target = String(last ?? "").includes(".") ? path : [...path, parsed.pathname.split("/").filter(Boolean).pop() || "download"]
                 const response = await (fetcher ?? globalThis.fetch)(url)
-                if (!response.ok) return failed("download", target, new Error(`the origin answered ${response.status}`))
+                // Never write a non-2xx body: an error page under the name of the
+                // asset is the worst of the three outcomes, because every later
+                // read succeeds.
+                if (!response.ok) throw new Error(`${url} answered ${response.status}`)
                 await driver.writeBytes(target, new Uint8Array(await response.arrayBuffer()))
                 return target
-            } catch (error) {
-                return failed("download", target, error)
-            }
-        }
+            })
     }
 }
 
