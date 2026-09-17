@@ -96,7 +96,13 @@ export const PORTS = {
     // callers, so it is the PARSED document. The registry said "bytes" until
     // 2026-09-17 — the one entry here that was describing a port by what the one
     // beside it does. `checkLoad()` states the rest.
-    load: { shape: "function", by: "host", serves: "the parsed document at a path, through whatever tiers the host has" },
+    load: { shape: "function", by: "host, or udb's own", serves: "the parsed document at a path, through whatever tiers the host has" },
+    // The three parameters of udb's own loader. Each is a SPELLING or a
+    // VOCABULARY — the two kinds of thing this package refuses to own, because it
+    // paid once for owning a host's naming (`statics.js`, the `.hash` address).
+    urlOf: { shape: "function", by: "host", serves: "where a path is published, or nothing when the store IS the origin" },
+    parse: { shape: "function", by: "host", serves: "the document these bytes spell, in the host's own vocabulary of extensions" },
+    tier: { shape: "function", by: "host", serves: "one more source below the store — a swarm, a peer, a mirror" },
     infohash: { shape: "function", by: "host", serves: "the content address of bytes" },
     hashes: { shape: "function", by: "host", serves: "the address a path was PUBLISHED under" },
     metadata: { shape: "function", by: "host", serves: "whether a path is a sidecar rather than data" },
@@ -124,6 +130,18 @@ export const NEEDS = {
     // have to be named after one door's argument shape.
     "createDB().lives": { required: ["store"], door: "createDB()", as: { store: "lives.store" } },
     "collections()": { oneOf: [["sql", "kv"]] },
+    // `parse` and `tier` are absent from `required` on purpose: a host with no
+    // vocabulary of its own gets JSON-or-text, and a host with no extra source
+    // has a three-rung ladder rather than a broken four-rung one. `urlOf` is
+    // required because "is there an origin above this store" is the one question
+    // the ladder cannot answer for a host — and a default would answer it wrong
+    // for whichever realm was not thought about.
+    "loader()": { required: ["driver", "urlOf"] },
+    // The door needs only the store: an `origin` or `urlOf` is what gives it a
+    // network tier, `parse`/`stringify` are what give it a vocabulary, and a host
+    // that passes neither gets a door over its own store that speaks JSON — which
+    // is a complete, useful door and not a half-wired one.
+    "fs()": { required: ["driver"] },
     // `realm` is how a door says it cannot exist everywhere. Replication
     // supervises a process, so a browser realm wires nothing for it — and a host
     // that serves both realms must be able to ASK which doors apply to the one it

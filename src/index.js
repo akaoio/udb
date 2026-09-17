@@ -161,6 +161,14 @@ export { REPLICATED_PRAGMAS, BUSY_MS } from "./replica/pragmas.js"
 // conformance kit travels with it: a host injecting its OWN driver runs the same
 // assertions against it, in its own suite.
 export { driver, checkDriver, checkFileDoor, supportsOPFS } from "./driver/index.js"
+// The loader is the BODY of the `load` port — this package stated that port's law
+// in `statics/conformance.js` and shipped nothing for years of it. `checkLoad` is
+// exported beside it so a host can run the law over whichever body it uses.
+export { loader } from "./loader.js"
+// The DOOR over the store: every verb a host was writing over the byte driver.
+export { fs } from "./fs.js"
+// Tree verbs over the driver port, the family `walk` was already in.
+export { copyTree, matches, find } from "./tree.js"
 // The chain-store two of the ports want, over that same driver — and the kit
 // that says what a store MEANS, for a host wiring its own.
 export { chainStore } from "./kv/index.js"
