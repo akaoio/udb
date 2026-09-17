@@ -60,6 +60,30 @@ Measured on one box, 20 000 writes + 20 000 reads: held statements **115.7 ms**,
 
 One meaning, two backends: `match(doc, filter)` (in-process matcher) and `compile(filter)` (SQL WHERE over `json_extract`). Ops `$eq $ne $gt $gte $lt $lte $in $nin`, combinators `&`/`|`, dot paths, honest null-vs-missing.
 
+## Replication — a directory of databases that survives the machine
+
+```js
+import { replica } from "@akaoio/udb/src/replica/index.js"   // a server reaches it directly: it imports node:child_process
+import { REPLICATED_PRAGMAS } from "@akaoio/udb"             // safe in every realm: data, no imports
+
+const db = await sqlite({ path: "data/alerts.db", pragmas: REPLICATED_PRAGMAS })
+
+replica({
+    name: "markets",
+    dir: "data",
+    binary: "./tools/litestream",                 // or null, and it looks
+    replicas: (id) => [{ type: "s3", bucket: "backups", path: `markets/${id}`, endpoint: process.env.S3_ENDPOINT, region: "auto" }]
+})
+```
+
+Litestream ships each database's WAL continuously, so the loss window is one sync rather than one backup cycle. The reason this is a module and not a line of shell: **Litestream has no glob** — a config naming `data/*.db` replicates one database literally called `*.db` (measured, 0.5.16). A directory that grows a file on demand needs its config generated from the directory and regenerated when the set changes, and Litestream does not reload config, so that means restarting it.
+
+`replicas(id)` is a **port**, not a table of backends: UDB places the entries the host answers with, so any backend Litestream supports — s3, gcs, abs, sftp, file, whatever lands next — works with nothing here to update. Per database, never per directory: two databases shipping to one prefix overwrite each other's generations, and it surfaces only when somebody restores.
+
+`REPLICATED_PRAGMAS` is the other half and it is not taste. A replicator is not a reader: Litestream creates its own tables inside the database and takes the write lock to do it, and `node:sqlite` opens with `busy_timeout = 0`. Measured 2026-08-31 while one writer inserted for 20 s: **3 303 of 57 375 writes threw (5.8 %)** at `busy_timeout = 0`, and **0 of 54 170** at 5 s.
+
+Credentials are refused rather than written — Litestream reads them from the environment, and a config file is a thing people paste into issues. A missing binary turns replication off **loudly** and never takes the host process down with it.
+
 ## The seam: one law, one registry
 
 **A capability has ONE owner. The other side touches it only through a port, and when a host must influence an owned capability that influence arrives as PARAMETERS — never as a second half of the implementation.** The owner is the side that can state the capability's law without naming the other side: *how to run SQL in this realm* is statable without naming any host, so the engine is UDB's; *which bucket these bytes replicate to* names one deployment, so it is the host's and reaches UDB as an argument.
