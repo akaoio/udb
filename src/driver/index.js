@@ -22,5 +22,5 @@ export async function driver(options = {}) {
     return nodeDriver(options)
 }
 
-export { checkDriver } from "./conformance.js"
+export { checkDriver, checkFileDoor } from "./conformance.js"
 export default driver
