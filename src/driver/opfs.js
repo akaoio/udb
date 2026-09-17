@@ -44,9 +44,30 @@ import { pathOf } from "./path.js"
  *
  * `scope` is a parameter for the same reason `detectEnvironment`'s is: it is the
  * only way either branch is testable.
+ *
+ * ── Why it cannot throw ────────────────────────────────────────────────────
+ *
+ * A PREDICATE answers; that is the whole of its contract. This one is asked at
+ * boot — `driver()` asks it, and a host asks it before deciding whether it can
+ * survive a no — so a throw here is a dead page rather than a degraded one, for
+ * the realm that was already the unlucky one. `navigator.storage` is a getter,
+ * and a getter on an object a host does not control is allowed to refuse
+ * (sandboxed embeddings are where this is reported); optional chaining guards an
+ * absent property, never an angry one.
+ *
+ * This is not a measured platform bug — it is the law of a predicate, and it
+ * arrives now because the guard moved. akao wrapped its own copy of this line in
+ * `try {} catch {}` with no recorded reason; when its copy was deleted (2026-09-17)
+ * that silent guard went with it, so the one home of the predicate is where it
+ * belongs — or it belongs nowhere, and a host is one getter away from a blank page.
  */
 export function supportsOPFS(scope = globalThis) {
-    return typeof scope?.navigator?.storage?.getDirectory === "function"
+    try {
+        return typeof scope?.navigator?.storage?.getDirectory === "function"
+    } catch {
+        // A realm that refuses to say has said no.
+        return false
+    }
 }
 
 const NOT_FOUND = new Set(["NotFoundError", "TypeMismatchError"])

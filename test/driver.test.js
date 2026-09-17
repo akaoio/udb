@@ -267,3 +267,23 @@ test("door: the realm decides the backend, NOT the presence of a store", async (
     assert.equal(supportsOPFS(BROWSER_NO_OPFS), false, "so does a private window — the same answer")
     await assert.rejects(() => driver({}, BROWSER_NO_OPFS), /browser realm/, "but a different outcome, which is the fix")
 })
+
+test("supportsOPFS ANSWERS, even when the platform refuses to be asked", async () => {
+    const { supportsOPFS } = await import("../src/driver/opfs.js")
+    // A predicate that throws turns "no OPFS" into a dead page, in the realm that
+    // was already the unlucky one. `navigator.storage` is a getter and a getter on
+    // an object the host does not own may refuse; optional chaining guards an
+    // absent property, never an angry one.
+    const angry = {
+        get navigator() {
+            throw new Error("SecurityError: storage access denied")
+        }
+    }
+    assert.equal(supportsOPFS(angry), false)
+    const angryStorage = { navigator: { get storage() { throw new Error("SecurityError") } } }
+    assert.equal(supportsOPFS(angryStorage), false)
+    // And the ordinary answers are unchanged.
+    assert.equal(supportsOPFS({}), false)
+    assert.equal(supportsOPFS({ navigator: { storage: { getDirectory: () => {} } } }), true)
+    assert.equal(supportsOPFS({ navigator: { storage: { getDirectory: "not a function" } } }), false)
+})

@@ -90,6 +90,13 @@ export function del(key) {
  * contact with the platform, and a host that keeps other keys there has two
  * writers on one namespace already.
  *
+ * NOT a verb of the `local` mount on the DB door, deliberately: every verb there
+ * takes a PATH (`peek(path)`, `put(path, value)`), and this one is about the whole
+ * store. Putting it beside them would make one level answer two questions, and
+ * `DB.get("theme").clear()` would read as "clear this key". A host reaching for it
+ * imports the engine — which is also the only kind of caller that wants it: the
+ * one offering a factory reset.
+ *
  * @returns {number} how many keys were cleared — a host that logs its reset has
  *   something true to log.
  */
@@ -132,7 +139,20 @@ if (BROWSER)
     globalThis.addEventListener?.("storage", (event) => {
         if (event.storageArea !== globalThis.localStorage) return
         if (event.key === null) {
-            memo.clear() // localStorage.clear() elsewhere
+            // Another tab emptied the store. This branch used to clear the memo and
+            // say nothing, which contradicted the sentence above it: `on()` promises
+            // "this key changed anywhere", and a clear is the largest change there
+            // is. It mattered little while no door could clear; `clear()` (below)
+            // is that door now, so the same event would notify in the tab that
+            // called it and stay silent in every other tab — one law, two
+            // behaviours, decided by which window you happened to be looking at.
+            //
+            // Callbacks are included alongside the memo because a subscriber may
+            // watch a key THIS tab never read, and storage is already empty by the
+            // time this fires, so there is nothing left to enumerate from.
+            const keys = new Set([...memo.keys(), ...callbacks.keys()])
+            memo.clear()
+            for (const key of keys) fire(key, undefined)
             return
         }
         const value = decode(event.newValue)
