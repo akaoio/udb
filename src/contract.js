@@ -93,7 +93,8 @@ export const PORTS = {
     metadata: { shape: "function", by: "host", serves: "whether a path is a sidecar rather than data" },
     store: { shape: "object", methods: ["get", "del"], by: "host", serves: "a chain-store for the lives mount" },
     sql: { shape: "function", by: "host", serves: "open the SQL door a collection is kept in" },
-    kv: { shape: "function", by: "host", serves: "open the chain-store a collection is kept in" }
+    kv: { shape: "function", by: "host", serves: "open the chain-store a collection is kept in" },
+    replicas: { shape: "function", by: "host", serves: "where a database of a replicated directory ships to, by id" }
 }
 
 /**
@@ -111,7 +112,8 @@ export const NEEDS = {
     // how its own caller spells them — otherwise the one home of the seam would
     // have to be named after one door's argument shape.
     "createDB().lives": { required: ["store"], door: "createDB()", as: { store: "lives.store" } },
-    "collections()": { oneOf: [["sql", "kv"]] }
+    "collections()": { oneOf: [["sql", "kv"]] },
+    "replica()": { required: ["replicas"] }
 }
 
 /** The byte driver, as the statics engine and `walk` use it. */

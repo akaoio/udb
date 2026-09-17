@@ -150,5 +150,10 @@ export { statics } from "./statics.js"
 export { Local } from "./local.js"
 export { sqlite, engine as sqliteEngine, VERBS as SQL_VERBS, LOCAL_ONLY as SQL_LOCAL_ONLY, WASM_ASSETS } from "./sqlite/index.js"
 export { walk } from "./walk.js"
+// The replication engine is NOT re-exported here: it imports node:child_process
+// at its top level, and a static import of that takes a browser page down before
+// a line runs. A server reaches it at `@akaoio/udb/src/replica/index.js`; what is
+// safe for every realm is the POLICY, which is data and imports nothing.
+export { REPLICATED_PRAGMAS, BUSY_MS } from "./replica/pragmas.js"
 export { DRIVER, STORE, requires, requiresFunction } from "./contract.js"
 export default createDB
