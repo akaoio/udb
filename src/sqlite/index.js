@@ -82,6 +82,8 @@
 import { NODE } from "../env.js"
 
 /** The verbs every engine answers — exported so a conformance suite needs no list of its own. */
+export { CallQueue } from "./queue.js"
+
 export const VERBS = ["exec", "all", "get", "run", "batch", "transaction", "prepare", "close"]
 
 /**

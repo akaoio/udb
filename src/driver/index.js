@@ -14,8 +14,8 @@
  * world answering.
  */
 export async function driver(options = {}) {
-    if (typeof navigator !== "undefined" && navigator?.storage?.getDirectory) {
-        const { opfsDriver } = await import("./opfs.js")
+    const { supportsOPFS, opfsDriver } = await import("./opfs.js")
+    if (supportsOPFS()) {
         return opfsDriver(options)
     }
     const { nodeDriver } = await import("./node.js")
@@ -23,4 +23,5 @@ export async function driver(options = {}) {
 }
 
 export { checkDriver, checkFileDoor } from "./conformance.js"
+export { supportsOPFS } from "./opfs.js"
 export default driver
