@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, rmSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { nodeDriver } from "../src/driver/node.js"
@@ -93,5 +93,17 @@ test("a SYNCHRONOUS port method is conformant, and the kit must not crash on one
         await Promise.allSettled(pending)
     } finally {
         rmSync(root, { recursive: true, force: true })
+    }
+})
+
+test("NO method's return value is ever .catch()-ed inside the kits — the rule, not one instance", () => {
+    // Fixing the first two call sites left a third, and it crashed the same way
+    // on the same host an hour later. The rule is mechanical, so it is measured
+    // mechanically: a kit may `await` a port method and wrap it in try/catch, and
+    // may not reach for `.catch` on what it answered with.
+    for (const file of ["../src/driver/conformance.js", "../src/kv/conformance.js"]) {
+        const source = readFileSync(new URL(file, import.meta.url), "utf8")
+        const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/[^\n]*/g, "$1")
+        assert.ok(!/\.catch\s*\(/.test(code), `${file} calls .catch() on something a port answered with — a port method may be synchronous, and that is a crash where a verdict is owed`)
     }
 })
