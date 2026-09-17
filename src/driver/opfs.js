@@ -30,6 +30,23 @@
  */
 import { pathOf } from "./path.js"
 
+/**
+ * Does this realm HAVE an Origin Private File System?
+ *
+ * One home for the predicate, because two answers to it disagree the day the
+ * platform changes shape: `driver()` picks the realm by asking exactly this, and
+ * a host must be able to ask the same question when it has to survive the answer
+ * being no (a degraded read tier rather than a dead page). akao had its own copy
+ * of this line — nine lines of a file, and the same `typeof
+ * navigator?.storage?.getDirectory === "function"` (measured 2026-09-17).
+ *
+ * `scope` is a parameter for the same reason `detectEnvironment`'s is: it is the
+ * only way either branch is testable.
+ */
+export function supportsOPFS(scope = globalThis) {
+    return typeof scope?.navigator?.storage?.getDirectory === "function"
+}
+
 const NOT_FOUND = new Set(["NotFoundError", "TypeMismatchError"])
 
 /** The directory handle for a path, optionally creating it on the way down. */

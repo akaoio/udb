@@ -148,6 +148,7 @@ export { match, compile } from "./filter.js"
 export { collections } from "./collections.js"
 export { statics } from "./statics.js"
 export { Local } from "./local.js"
+export { CallQueue } from "./sqlite/queue.js"
 export { sqlite, engine as sqliteEngine, VERBS as SQL_VERBS, LOCAL_ONLY as SQL_LOCAL_ONLY, WASM_ASSETS } from "./sqlite/index.js"
 export { walk } from "./walk.js"
 // The replication engine is NOT re-exported here: it imports node:child_process
@@ -159,7 +160,7 @@ export { REPLICATED_PRAGMAS, BUSY_MS } from "./replica/pragmas.js"
 // what exists, behind a dynamic import — so it is safe in every realm. The
 // conformance kit travels with it: a host injecting its OWN driver runs the same
 // assertions against it, in its own suite.
-export { driver, checkDriver, checkFileDoor } from "./driver/index.js"
+export { driver, checkDriver, checkFileDoor, supportsOPFS } from "./driver/index.js"
 // The chain-store two of the ports want, over that same driver — and the kit
 // that says what a store MEANS, for a host wiring its own.
 export { chainStore } from "./kv/index.js"

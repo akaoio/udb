@@ -60,6 +60,19 @@ Measured on one box, 20 000 writes + 20 000 reads: held statements **115.7 ms**,
 
 One meaning, two backends: `match(doc, filter)` (in-process matcher) and `compile(filter)` (SQL WHERE over `json_extract`). Ops `$eq $ne $gt $gte $lt $lte $in $nin`, combinators `&`/`|`, dot paths, honest null-vs-missing.
 
+## One call at a time, per database
+
+```js
+import { CallQueue } from "@akaoio/udb"
+
+const queue = new CallQueue({ send: (method, params, callback) => port.postMessage(...), defaultTimeout: 10000 })
+await queue.call("all", { sql: "SELECT 1" })
+```
+
+The remote engine forwards every verb to whatever holds the real database — a worker, a socket, another process — and something has to serialise those calls and notice when an answer never comes. **Per database, not per realm**, and that is measured rather than chosen: a host arrived here with one queue for its whole process and paid twice — head-of-line blocking (a slow query on one database delayed every other) and a watchdog that flushed the ENTIRE shared line when one database timed out, killing every sibling's in-flight work.
+
+The transport is injected and the queue never learns what carries its calls, which is what makes all of that testable with no worker, no socket and no database.
+
 ## Replication — a directory of databases that survives the machine
 
 ```js
