@@ -171,6 +171,11 @@ export { fs } from "./fs.js"
 // by `driver.scope`, so the discipline around that answer is this package's own
 // correctness; where the roots ARRIVE stays the host's.
 export { realm } from "./realm.js"
+// WHAT bytes spell. The EDGES of a vocabulary stay ports (`fs()` asks for
+// `parse`/`stringify`); the middle — JSON, CSV/TSV, what "text" means, and what an
+// unparsable file answers — turned out not to be a host's at all.
+export { vocabulary } from "./vocabulary.js"
+export { parse as parseCSV, stringify as stringifyCSV } from "./csv/index.js"
 // THE SEAM ITSELF. A host's first question is "which ports does this package
 // have", and until now the only answer was a deep import of `src/contract.js`
 // while `index.js` was the front door — so the registry, the one thing built to
