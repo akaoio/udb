@@ -71,13 +71,22 @@ function state() {
  *
  * `open(root)` builds a store for a root — a parameter, because what a root MEANS
  * is the host's: a directory on a disk, a mount inside an OPFS, a driver that
- * answers empty when the platform has none. `fallback` is the root to answer with
- * when nobody has declared one; in a browser it is ignored, because one origin has
- * one OPFS and a root names nothing there.
+ * answers empty when the platform has none.
+ *
+ * `arrived()` answers the root an entry point has ALREADY put wherever this host
+ * collects them, or nothing. It is a question rather than a value because the door
+ * asks it at FIRST USE: a module that captured the answer at import time would read
+ * an empty collection point and then be wrong for the rest of the process. WHERE
+ * roots arrive stays the host's — a global, a worker's data, an environment
+ * variable — and this door never learns the spelling.
+ *
+ * `fallback` is the root to answer with when nothing arrived and nobody declared; in
+ * a browser both are ignored, because one origin has one OPFS and a root names
+ * nothing there.
  */
 export function realm(wiring = {}) {
     conform("realm()", wiring)
-    const { open, fallback = null } = wiring
+    const { open, arrived = null, fallback = null } = wiring
     const { NODE, BROWSER } = detectEnvironment()
     const held = new Map()
 
@@ -97,12 +106,22 @@ export function realm(wiring = {}) {
         if (BROWSER) return "OPFS"
         const now = state()
         if (now.root === undefined) {
-            const answer = fallback ?? (NODE ? process.cwd() : null)
+            // Has a root ALREADY arrived? An entry point may put one where the host
+            // collects them and then simply start working — a suite pointing itself at
+            // a built tree does exactly that — so the door has to ASK rather than wait
+            // to be told. Without this question such a realm answers the fallback and
+            // reads the wrong tree, and the failure names no tree at all: measured on
+            // the host that adopted this door, where a suite set its root and never
+            // called `declare`, and a file plainly present in the built tree came back
+            // as "missing from the build".
+            const already = arrived?.() || null
+            const answer = already ?? fallback ?? (NODE ? process.cwd() : null)
             now.root = answer
-            // Remember whether that came from a declaration or from the fallback.
-            // The difference is invisible at the call site and decides which store
-            // was read — see `declare`.
-            now.byDefault = answer
+            // A root that ARRIVED is not a default: the refusal below watches for a
+            // root arriving AFTER the fallback was read, and a realm that started
+            // from an arrived root has no such window. Remembering which it was is
+            // the whole of that distinction, and it is invisible at the call site.
+            now.byDefault = already ? null : answer
             now.used = false
         }
         return now.root
