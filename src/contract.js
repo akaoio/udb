@@ -104,6 +104,7 @@ export const PORTS = {
     parse: { shape: "function", by: "host", serves: "the document these bytes spell, in the host's own vocabulary of extensions" },
     stringify: { shape: "function", by: "host", serves: "the bytes a document is written down as, in that same vocabulary" },
     tier: { shape: "function", by: "host", serves: "one more source below the store — a swarm, a peer, a mirror" },
+    open: { shape: "function", by: "host", serves: "a store for one root — what a root MEANS is the host's" },
     infohash: { shape: "function", by: "host", serves: "the content address of bytes" },
     hashes: { shape: "function", by: "host", serves: "the address a path was PUBLISHED under" },
     metadata: { shape: "function", by: "host", serves: "whether a path is a sidecar rather than data" },
@@ -156,6 +157,12 @@ export const NEEDS = {
     // that passes neither gets a door over its own store that speaks JSON — which
     // is a complete, useful door and not a half-wired one.
     "fs()": { required: ["driver"], optional: ["urlOf", "parse", "stringify", "tier"] },
+    // `open(root)` is the one thing the realm door cannot answer: what a root MEANS
+    // is the host's (a directory on a disk, a mount inside an OPFS, a driver that
+    // answers empty where the platform has none). Everything else about the door —
+    // read once, refuse a root that arrives after a read of the fallback — is this
+    // package's, because its own caches are keyed by the store.
+    "realm()": { required: ["open"] },
     // `realm` is how a door says it cannot exist everywhere. Replication
     // supervises a process, so a browser realm wires nothing for it — and a host
     // that serves both realms must be able to ASK which doors apply to the one it

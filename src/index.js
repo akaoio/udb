@@ -167,6 +167,10 @@ export { driver, checkDriver, checkFileDoor, supportsOPFS } from "./driver/index
 export { loader } from "./loader.js"
 // The DOOR over the store: every verb a host was writing over the byte driver.
 export { fs } from "./fs.js"
+// WHICH store this realm reads. Here because every cache in this package is keyed
+// by `driver.scope`, so the discipline around that answer is this package's own
+// correctness; where the roots ARRIVE stays the host's.
+export { realm } from "./realm.js"
 // THE SEAM ITSELF. A host's first question is "which ports does this package
 // have", and until now the only answer was a deep import of `src/contract.js`
 // while `index.js` was the front door — so the registry, the one thing built to
