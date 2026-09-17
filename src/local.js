@@ -63,6 +63,57 @@ export function del(key) {
     fire(key, undefined)
 }
 
+/**
+ * Empty the WHOLE store — the verb a host needs when it offers a factory reset.
+ *
+ * Without it there is no correct way to do that, and the incorrect way is
+ * silent: a host calls `localStorage.clear()` itself, past this door, and this
+ * memo keeps every value. The `storage` event does not fire in the tab that
+ * made the change (it is specified as a cross-document notification), so the
+ * memo has no way to learn. Measured 2026-09-17 in akao: its `reset()` cleared
+ * storage, logged "All reset tasks have been completed", and `peek("locale")`
+ * still answered `"vi"` — the settings survived their own deletion, in RAM.
+ *
+ * Keys are collected from BOTH sides before anything is removed, because the
+ * two disagree on purpose: the memo holds what this process has touched, and
+ * storage holds what earlier sessions wrote. A subscriber to a key this process
+ * never read is still owed the news.
+ *
+ * `key(index)` is the only way to enumerate storage, and a host may hand over a
+ * partial shim that lacks it (this package assumes only get/set/remove
+ * elsewhere). Then the memo and the storage are still both emptied — only the
+ * notification for never-read keys is missed, which is the smallest possible
+ * loss and better than refusing to reset.
+ *
+ * It empties localStorage rather than a prefixed subset because this store
+ * writes BARE keys (see `put`): the namespace is this store's whole point of
+ * contact with the platform, and a host that keeps other keys there has two
+ * writers on one namespace already.
+ *
+ * @returns {number} how many keys were cleared — a host that logs its reset has
+ *   something true to log.
+ */
+export function clear() {
+    const keys = new Set(memo.keys())
+    const store = storage()
+    if (store && typeof store.key === "function") {
+        for (let index = 0; index < store.length; index++) {
+            const key = store.key(index)
+            if (key !== null) keys.add(key)
+        }
+    }
+    memo.clear()
+    try {
+        store?.clear()
+    } catch (error) {
+        // Same posture as `put`: a storage that refuses is reported, never fatal.
+        console.warn("Local: could not clear storage", error)
+    }
+    // After the emptying, so a callback that reads back sees the cleared store.
+    for (const key of keys) fire(key, undefined)
+    return keys.size
+}
+
 /** Subscribe to changes of one key — same-tab puts and other-tab storage events. */
 export function on(key, callback) {
     if (!callbacks.has(key)) callbacks.set(key, new Set())
@@ -89,5 +140,5 @@ if (BROWSER)
         fire(event.key, value)
     })
 
-export const Local = { peek, put, del, on }
+export const Local = { peek, put, del, clear, on }
 export default Local

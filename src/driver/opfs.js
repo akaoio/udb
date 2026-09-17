@@ -34,8 +34,10 @@ import { pathOf } from "./path.js"
  * Does this realm HAVE an Origin Private File System?
  *
  * One home for the predicate, because two answers to it disagree the day the
- * platform changes shape: `driver()` picks the realm by asking exactly this, and
- * a host must be able to ask the same question when it has to survive the answer
+ * platform changes shape. `driver()` asks it to decide whether a browser realm
+ * HAS a store — never to decide which realm this is, a job it did until the two
+ * answers parted company in a private window (see that door's header) — and a
+ * host must be able to ask the same question when it has to survive the answer
  * being no (a degraded read tier rather than a dead page). akao had its own copy
  * of this line — nine lines of a file, and the same `typeof
  * navigator?.storage?.getDirectory === "function"` (measured 2026-09-17).
