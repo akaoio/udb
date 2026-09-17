@@ -65,17 +65,13 @@
  * is at rest locally — the honest scope of a cache.
  */
 import { walk } from "./walk.js"
-import { DRIVER, DRIVER_FIELDS, requires, requiresFunction } from "./contract.js"
+import { conform } from "./contract.js"
 
 export function statics({ load, driver, infohash, hashes, metadata, browser, dev }) {
     // Checked HERE, not at the first read: a driver missing one method used to
     // surface as `driver.entries is not a function` from inside a load, with the
     // cause in the host's wiring and the stack in this package (see contract.js).
-    requires(driver, DRIVER, "driver", "statics()", DRIVER_FIELDS)
-    requiresFunction(load, "load", "statics()")
-    requiresFunction(infohash, "infohash", "statics()")
-    requiresFunction(hashes, "hashes", "statics()")
-    requiresFunction(metadata, "metadata", "statics()")
+    conform("statics()", { driver, load, infohash, hashes, metadata })
     // Refused loudly rather than defaulted: a default would be this engine
     // guessing one host's spelling again, and the guess would be invisible —
     // every read would just quietly stop validating.

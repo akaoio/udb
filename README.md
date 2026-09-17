@@ -60,18 +60,17 @@ Measured on one box, 20 000 writes + 20 000 reads: held statements **115.7 ms**,
 
 One meaning, two backends: `match(doc, filter)` (in-process matcher) and `compile(filter)` (SQL WHERE over `json_extract`). Ops `$eq $ne $gt $gte $lt $lte $in $nin`, combinators `&`/`|`, dot paths, honest null-vs-missing.
 
-## What UDB requires of what you inject
+## The seam: one law, one registry
 
-Each engine's shape is checked **at wiring**, not at the first read, and a refusal names the missing method and the door that needed it:
+**A capability has ONE owner. The other side touches it only through a port, and when a host must influence an owned capability that influence arrives as PARAMETERS — never as a second half of the implementation.** The owner is the side that can state the capability's law without naming the other side: *how to run SQL in this realm* is statable without naming any host, so the engine is UDB's; *which bucket these bytes replicate to* names one deployment, so it is the host's and reaches UDB as an argument.
 
-| injected | UDB calls | checked in |
-|---|---|---|
-| `driver` | `readBytes` `writeBytes` `remove` `entries`, and **`scope`** (a non-empty string naming WHICH store it reads) | `statics()` |
-| `load`, `infohash`, `hashes`, `metadata` | (functions) | `statics()` |
-| `lives.store` | `get` `del` | `createDB()` |
-| `collections({ sql, kv })` | one of the two | `collections()` |
+Every port — its name, its shape, which capability it serves and who implements it — lives in **`src/contract.js`**, and the doors ask that table rather than spelling their own lists. There is deliberately no copy of it here: a list in prose is a second home, and it goes stale exactly when a port is added.
 
-The lists are exactly what this package **calls** — no wider. akao's own byte driver has ten methods because its file door needs them; demanding ten here would impose a law this package does not live by, and the next host would implement six methods to satisfy a contract nobody reads. Two contracts, two homes.
+```bash
+npm run ports          # prints the registry, from the registry
+```
+
+Each port is checked **at wiring**, not at the first read, and a refusal names the port, the door that needed it, and what it is for. The method lists are exactly what this package **calls** — no wider. akao's own byte driver has ten methods because its file door needs them; demanding ten here would impose a law this package does not live by, and the next host would implement six methods to satisfy a contract nobody reads. Two contracts, two homes, because they really are two different claims.
 
 ## The host injects what only it can know
 

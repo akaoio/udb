@@ -1,5 +1,42 @@
 /**
- * What UDB needs from the things a host injects — stated, and checked AT WIRING.
+ * THE SEAM between UDB and a host: every port, in one place.
+ *
+ * ── The law this file exists to make mechanical ─────────────────────────────
+ *
+ * **A capability has ONE owner. The other side touches it only through a port
+ * declared here. When the host must influence an owned capability, that
+ * influence arrives as PARAMETERS through the port — never as a second half of
+ * the implementation.**
+ *
+ * The owner of a capability is the side that can state its law WITHOUT naming
+ * the other side. "How to run SQL in this realm" is statable without naming
+ * akao, so the engine is UDB's (0.10.0). "Which bucket these bytes replicate
+ * to" names a host's deployment, so it is the host's — and it reaches UDB as an
+ * argument, not as a module living over there.
+ *
+ * That last sentence is the one that was missing. Without it every new
+ * capability was re-argued from scratch, and the argument was always about lines
+ * of code rather than about ownership — so the answer was always "split it", and
+ * a split capability is a capability with half a body in each repository. Two
+ * homes, no arbiter, which is the expensive failure this package was extracted
+ * to end.
+ *
+ * ── Why a REGISTRY and not a checker per call site ──────────────────────────
+ *
+ * Measured 2026-09-17, before this file grew: UDB had EIGHT real seams and
+ * checked six of them. `collections({ sql, kv })` checked nothing at all — a
+ * host that injected something that is not a function got `sql is not a
+ * function` from inside `sqlEngine`, and a host that injected NEITHER got a
+ * refusal only at the first `collectionMount(name)`, which is a different moment
+ * from wiring and often a different stack. Each mount also spelled its own list
+ * of what it needs, so "which ports does UDB have" had three homes and no
+ * answer: the question a host asks first is the one thing this package could not
+ * be asked.
+ *
+ * Now the mounts ask this table. A port added here is checked the same hour by
+ * every mount that names it, and a host reading one file learns the whole seam.
+ *
+ * ── What a host injects, and what UDB needs from it ─────────────────────────
  *
  * ── The failure this removes ────────────────────────────────────────────────
  *
@@ -25,8 +62,60 @@
  * Two contracts, two homes, because they really are two different claims.
  */
 
+/**
+ * Every port of this package: what it is called, what shape it must have, and
+ * which capability it serves.
+ *
+ * `by` says who IMPLEMENTS the port. Today every one of them is the host's,
+ * because UDB owns the capabilities whose law it can state alone and asks for
+ * the rest by name. A port UDB implements would be declared here too — the
+ * table is the seam, not a list of demands.
+ *
+ * The method lists are exactly what THIS package calls. akao's byte driver has
+ * ten methods (`list`, `isDir`, `mkdir`, `move`, `copyFile`… — its own file door
+ * needs them) and UDB uses four. Demanding ten would impose a law wider than the
+ * one this package lives by, and the next host would implement six methods to
+ * satisfy a contract nobody reads. A host's own, larger contract stays the
+ * host's (akao keeps its ten in `src/core/FS/driver.js`): two contracts, two
+ * homes, because they really are two different claims.
+ */
+export const PORTS = {
+    driver: {
+        shape: "object",
+        methods: ["readBytes", "writeBytes", "remove", "entries"],
+        fields: ["scope"],
+        by: "host",
+        serves: "bytes in one store of this realm"
+    },
+    load: { shape: "function", by: "host", serves: "the bytes at a path, through whatever tiers the host has" },
+    infohash: { shape: "function", by: "host", serves: "the content address of bytes" },
+    hashes: { shape: "function", by: "host", serves: "the address a path was PUBLISHED under" },
+    metadata: { shape: "function", by: "host", serves: "whether a path is a sidecar rather than data" },
+    store: { shape: "object", methods: ["get", "del"], by: "host", serves: "a chain-store for the lives mount" },
+    sql: { shape: "function", by: "host", serves: "open the SQL door a collection is kept in" },
+    kv: { shape: "function", by: "host", serves: "open the chain-store a collection is kept in" }
+}
+
+/**
+ * Which ports each door needs, and where an EITHER/OR is a real one.
+ *
+ * `collections` is the either/or: the engine is chosen by what the host
+ * injected, so exactly one of `sql`/`kv` is enough and neither is a refusal —
+ * which used to surface at the first `collectionMount(name)` instead of here.
+ */
+export const NEEDS = {
+    "statics()": { required: ["driver", "load", "infohash", "hashes", "metadata"] },
+    // `door` and `as` exist for the MESSAGE only: a caller writes
+    // `createDB({ lives: { store } })`, so that is the name the refusal has to
+    // use. The registry keys ports by what they ARE (`store`), and a door says
+    // how its own caller spells them — otherwise the one home of the seam would
+    // have to be named after one door's argument shape.
+    "createDB().lives": { required: ["store"], door: "createDB()", as: { store: "lives.store" } },
+    "collections()": { oneOf: [["sql", "kv"]] }
+}
+
 /** The byte driver, as the statics engine and `walk` use it. */
-export const DRIVER = ["readBytes", "writeBytes", "remove", "entries"]
+export const DRIVER = PORTS.driver.methods
 
 /**
  * And what a driver must SAY about itself: which store it reads and writes.
@@ -52,10 +141,10 @@ export const DRIVER = ["readBytes", "writeBytes", "remove", "entries"]
  * disk, whatever names ONE store for the host. Two drivers with the same scope
  * claim to be the same store.
  */
-export const DRIVER_FIELDS = ["scope"]
+export const DRIVER_FIELDS = PORTS.driver.fields
 
 /** A chain-store, as the `lives` mount uses it: a root that chains, plus a wipe. */
-export const STORE = ["get", "del"]
+export const STORE = PORTS.store.methods
 
 /**
  * Refuse anything missing a method, by name, saying who was to supply it.
@@ -82,4 +171,34 @@ export function requiresFunction(value, what, who) {
     return value
 }
 
-export default { DRIVER, DRIVER_FIELDS, STORE, requires, requiresFunction }
+/**
+ * Check a whole wiring against the ports the door needs — one call, at wiring.
+ *
+ * `who` names the door as a caller writes it (`"statics()"`), because the person
+ * reading the error is wiring a host, not reading this package. A port absent
+ * from `wiring` is refused by NAME along with what it is for, so the fix is the
+ * message rather than a stack.
+ */
+export function conform(who, wiring = {}) {
+    const needs = NEEDS[who]
+    if (!needs) throw new Error(`UDB: ${who} asked the port registry for its needs and the registry does not know that door — add it to NEEDS in contract.js, which is the one home of the seam`)
+    const door = needs.door ?? who
+    const label = (name) => needs.as?.[name] ?? name
+    for (const name of needs.required ?? []) check(name, wiring[name], door, label(name))
+    for (const group of needs.oneOf ?? []) {
+        const given = group.filter((name) => wiring[name] !== undefined && wiring[name] !== null)
+        if (!given.length) throw new Error(`UDB: ${door} needs one of ${group.map((name) => `${label(name)} (${PORTS[name].serves})`).join(" or ")} — the host injects one, and which one it gives is what decides the engine`)
+        for (const name of given) check(name, wiring[name], door, label(name))
+    }
+    return wiring
+}
+
+/** One port, by its declaration. */
+function check(name, value, door, label = name) {
+    const port = PORTS[name]
+    if (!port) throw new Error(`UDB: ${door} asked for a port named "${name}" that contract.js does not declare — the registry is the one home of the seam`)
+    if (port.shape === "function") return requiresFunction(value, label, door)
+    return requires(value, port.methods, label, door, port.fields ?? [])
+}
+
+export default { PORTS, NEEDS, conform, DRIVER, DRIVER_FIELDS, STORE, requires, requiresFunction }
