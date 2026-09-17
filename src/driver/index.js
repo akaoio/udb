@@ -53,5 +53,9 @@ export async function driver(options = {}, globals = globalThis) {
 }
 
 export { checkDriver, checkFileDoor } from "./conformance.js"
+// The wrapper that refuses a malformed path at the CALL SITE, and the store that is
+// not there. Both arrived from a host that had written them itself — and both are
+// shape with nothing host-specific inside, which is the test.
+export { guard, emptyStore } from "./guard.js"
 export { supportsOPFS } from "./opfs.js"
 export default driver

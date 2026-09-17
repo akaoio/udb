@@ -160,7 +160,7 @@ export { REPLICATED_PRAGMAS, BUSY_MS } from "./replica/pragmas.js"
 // what exists, behind a dynamic import — so it is safe in every realm. The
 // conformance kit travels with it: a host injecting its OWN driver runs the same
 // assertions against it, in its own suite.
-export { driver, checkDriver, checkFileDoor, supportsOPFS } from "./driver/index.js"
+export { driver, checkDriver, checkFileDoor, supportsOPFS, guard, emptyStore } from "./driver/index.js"
 // The loader is the BODY of the `load` port — this package stated that port's law
 // in `statics/conformance.js` and shipped nothing for years of it. `checkLoad` is
 // exported beside it so a host can run the law over whichever body it uses.

@@ -287,3 +287,101 @@ test("supportsOPFS ANSWERS, even when the platform refuses to be asked", async (
     assert.equal(supportsOPFS({ navigator: { storage: { getDirectory: () => {} } } }), true)
     assert.equal(supportsOPFS({ navigator: { storage: { getDirectory: "not a function" } } }), false)
 })
+
+test("guard: a driver missing one of the TEN verbs is refused at wiring, by name", async () => {
+    const { guard } = await import("../src/driver/guard.js")
+    const full = nodeDriver({ root: "." })
+    assert.doesNotThrow(() => guard(full))
+    const { copyFile, ...missing } = full
+    void copyFile
+    assert.throws(() => guard(missing), /missing "copyFile"/)
+    // A driver missing one fails at the first call that needs it — inside a walk,
+    // with a TypeError naming a property. Checked here it fails once, at wiring.
+    // A property that merely EXISTS is not an answer: the spread below creates
+    // `scope` with the value undefined, and an earlier version of the check let that
+    // through because it asked "is there an own descriptor OR a string".
+    assert.throws(() => guard({ ...full, scope: undefined }), /"scope" is missing/)
+    assert.throws(() => guard({ ...full, scope: "" }), /"scope" is string/)
+})
+
+test("guard: a malformed path is refused at the CALL SITE, naming the segment", async () => {
+    const { guard } = await import("../src/driver/guard.js")
+    const at = mkdtempSync(join(tmpdir(), "udb-guard-"))
+    try {
+        const door = guard(nodeDriver({ root: at }))
+        // The paid case (akao #355): a NESTED array reached a join, and every answer
+        // stayed reasonable in isolation — an empty listing for a full directory, a
+        // `true` for a file still there — while a build's clean step cleaned nothing
+        // for years and printed success.
+        await assert.rejects(async () => door.list([["a", "b"]]), /segment 0 .* is an array .* spread it/)
+        await assert.rejects(async () => door.readBytes([null]), /segment 0 .* is null/)
+        await assert.rejects(async () => door.readBytes([undefined]), /is a undefined/)
+        await assert.rejects(async () => door.readBytes("not an array" === "" ? [] : 42), /must be an array of segments/)
+        // BOTH paths of a two-path verb are checked, not only the first.
+        await assert.rejects(async () => door.move(["a"], [7]), /second path is a number/)
+    } finally {
+        rmSync(at, { recursive: true, force: true })
+    }
+})
+
+test("guard: a string path splits once, here, for every verb", async () => {
+    const { guard } = await import("../src/driver/guard.js")
+    const at = mkdtempSync(join(tmpdir(), "udb-guard-split-"))
+    try {
+        const door = guard(nodeDriver({ root: at }))
+        await door.writeBytes("deep/inside.txt", new TextEncoder().encode("x"))
+        assert.equal(new TextDecoder().decode(await door.readBytes(["deep", "inside.txt"])), "x", "the string and the array name the same place")
+    } finally {
+        rmSync(at, { recursive: true, force: true })
+    }
+})
+
+test("guard: a host whose law is WIDER says so once — `segment`", async () => {
+    const { guard } = await import("../src/driver/guard.js")
+    const at = mkdtempSync(join(tmpdir(), "udb-guard-widen-"))
+    try {
+        // This package's law is that a segment is a string; a host that allows a
+        // NUMBER (a chain id, written `["chains", 1, "configs.json"]`) widens it HERE
+        // rather than in every door above. Without it, `node:path.join` throws from
+        // inside the driver, an engine above catches that as "nothing at rest", and a
+        // file plainly present answers null (akao, measured).
+        const door = guard(nodeDriver({ root: at }), { segment: (value) => (typeof value === "number" ? String(value) : value) })
+        await door.writeBytes(["chains", 1, "configs.json"], new TextEncoder().encode("{}"))
+        assert.equal(await door.exists(["chains", "1", "configs.json"]), true)
+        // And a shape the host did NOT widen is still refused.
+        await assert.rejects(async () => door.readBytes([{}]), /is a object/)
+    } finally {
+        rmSync(at, { recursive: true, force: true })
+    }
+})
+
+test("guard: `scope` is forwarded as a QUESTION, so a store that moves stays named", async () => {
+    const { guard } = await import("../src/driver/guard.js")
+    let where = "/tmp/A"
+    const moving = {
+        get scope() {
+            return where
+        },
+        ...Object.fromEntries(["readBytes", "writeBytes", "remove", "list", "entries", "exists", "isDir", "mkdir", "move", "copyFile"].map((verb) => [verb, async () => null]))
+    }
+    const door = guard(moving)
+    assert.equal(door.scope, "/tmp/A")
+    where = "/tmp/B"
+    assert.equal(door.scope, "/tmp/B", "copying the value would name the store this wrapper was BUILT over")
+})
+
+test("emptyStore: a store that is not there answers, and a write is refused not thrown", async () => {
+    const { emptyStore, guard } = await import("../src/driver/guard.js")
+    // A browser with no OPFS. `driver()` refuses by name there and leaves what to DO
+    // with the no to the host — and this is what every host does with it, because the
+    // alternative is a dead page.
+    const gone = guard(emptyStore({ scope: "OPFS" }))
+    assert.equal(gone.scope, "OPFS")
+    assert.equal(await gone.readBytes(["x.json"]), null)
+    assert.deepEqual(await gone.entries(["x"]), [])
+    assert.deepEqual(await gone.list(["x"]), [])
+    assert.equal(await gone.exists(["x"]), false)
+    assert.equal(await gone.isDir(["x"]), false)
+    // A page running on the network tier is not a page whose every write throws.
+    assert.deepEqual(await gone.writeBytes(["x.json"], new Uint8Array()), { success: false })
+})
