@@ -131,3 +131,51 @@ test("and one whose on() never delivers — a fan-out that is silently a no-op",
         rmSync(root, { recursive: true, force: true })
     }
 })
+
+test("a read of a BRANCH assembles the subtree, and an exact document still wins", async () => {
+    // What a real host's store already did, and the only reason this one could
+    // not replace it: writes go four levels down, reads happen at the branch.
+    const root = scratch()
+    try {
+        const store = chainStore({ driver: nodeDriver({ root }) })
+        await store.get("pools").get("eth").get("0xaaa").put({ price: 1 })
+        await store.get("pools").get("bsc").get("0xbbb").put({ price: 2 })
+        assert.deepEqual(await store.get("pools").once(), { eth: { "0xaaa": { price: 1 } }, bsc: { "0xbbb": { price: 2 } } })
+        await store.get("pools").put({ note: "the branch has a value of its own" })
+        assert.deepEqual(await store.get("pools").once(), { note: "the branch has a value of its own" }, "an exact document wins over assembly")
+        assert.equal(await store.get("nothing").once(), undefined, "and a branch with nothing under it is still undefined")
+    } finally {
+        rmSync(root, { recursive: true, force: true })
+    }
+})
+
+test("an ancestor with a subscriber hears the assembled subtree, and one without pays nothing", async () => {
+    const root = scratch()
+    try {
+        const store = chainStore({ driver: nodeDriver({ root }) })
+        const heard = []
+        await store.get("pools").on((value) => heard.push(value))
+        await store.get("pools").get("eth").get("0xaaa").put({ price: 3 })
+        assert.deepEqual(heard.at(-1), { eth: { "0xaaa": { price: 3 } } }, "the ancestor hears what once() would answer it")
+        // No subscriber on this branch: the write must not assemble anything.
+        await store.get("quiet").get("a").put({ n: 1 })
+        assert.equal(heard.length, 1, "a tree with no subscribers pays for no assembly")
+    } finally {
+        rmSync(root, { recursive: true, force: true })
+    }
+})
+
+test("map reaches EVERY depth — a prefix in a tree is not just its first floor", async () => {
+    const root = scratch()
+    try {
+        const store = chainStore({ driver: nodeDriver({ root }) })
+        await store.get("a").get("b").put({ n: 1 })
+        await store.get("a").get("b").get("c").put({ n: 2 })
+        const seen = []
+        const count = await store.get("a").map((document, path) => seen.push([path.join("/"), document.n]))
+        assert.equal(count, 2)
+        assert.deepEqual(seen.sort(), [["a/b", 1], ["a/b/c", 2]])
+    } finally {
+        rmSync(root, { recursive: true, force: true })
+    }
+})
