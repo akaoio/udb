@@ -165,4 +165,8 @@ export { driver, checkDriver } from "./driver/index.js"
 export { chainStore } from "./kv/index.js"
 export { checkStore } from "./kv/conformance.js"
 export { DRIVER, STORE, requires, requiresFunction } from "./contract.js"
+// Which realm this is — exported because a host that needs the answer and finds
+// no export writes the same two lines, and then there are two homes for one law
+// (akao had them, byte for byte, until 2026-09-17).
+export { detectEnvironment, NODE, BROWSER } from "./env.js"
 export default createDB
