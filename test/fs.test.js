@@ -216,3 +216,35 @@ test("download REFUSES a non-2xx instead of writing an error page into the store
 test("it refuses a wiring with no store, by name, at construction", () => {
     assert.throws(() => fileDoor({}), /driver/)
 })
+
+test("the door asks the driver WHICH store, never snapshots it", async () => {
+    // akao #858 in miniature: a host's store can MOVE under a door — a suite stages
+    // another tree, a worker inherits a root, a fork run points at one site's build.
+    // A driver that answers `scope` through a getter is telling the truth; a door
+    // that copied the answer once is not, and nothing says so. A mark can be
+    // forgotten; a question cannot.
+    let where = "/tmp/A"
+    const moving = {
+        get scope() {
+            return where
+        },
+        readBytes: async () => null,
+        writeBytes: async () => {},
+        remove: async () => {},
+        entries: async () => []
+    }
+    const door = fileDoor({ driver: moving })
+    assert.equal(door.scope, "/tmp/A")
+    where = "/tmp/B"
+    assert.equal(door.scope, "/tmp/B", "the door must not still be naming the store it was built over")
+})
+
+test("the registry is reachable from the entry point, not only by deep import", async () => {
+    // A host's FIRST question is "which ports does this package have". The answer
+    // lived in `src/contract.js` while `index.js` was the front door, so the one
+    // thing built to be read from outside was the one thing the door did not offer.
+    const entry = await import("../src/index.js")
+    assert.equal(typeof entry.conform, "function")
+    assert.ok(entry.NEEDS["fs()"], "and the doors are listed there")
+    assert.ok(entry.PORTS.driver)
+})

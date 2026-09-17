@@ -167,6 +167,11 @@ export { driver, checkDriver, checkFileDoor, supportsOPFS } from "./driver/index
 export { loader } from "./loader.js"
 // The DOOR over the store: every verb a host was writing over the byte driver.
 export { fs } from "./fs.js"
+// THE SEAM ITSELF. A host's first question is "which ports does this package
+// have", and until now the only answer was a deep import of `src/contract.js`
+// while `index.js` was the front door — so the registry, the one thing built to
+// be read from outside, was the one thing the entry point did not offer.
+export { PORTS, NEEDS, conform } from "./contract.js"
 // Tree verbs over the driver port, the family `walk` was already in.
 export { copyTree, matches, find } from "./tree.js"
 // The chain-store two of the ports want, over that same driver — and the kit
