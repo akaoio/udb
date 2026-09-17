@@ -94,7 +94,7 @@ Every port — its name, its shape, which capability it serves and who implement
 npm run ports          # prints the registry, from the registry
 ```
 
-Each port is checked **at wiring**, not at the first read, and a refusal names the port, the door that needed it, and what it is for. The method lists are exactly what this package **calls** — no wider. akao's own byte driver has ten methods because its file door needs them; demanding ten here would impose a law this package does not live by, and the next host would implement six methods to satisfy a contract nobody reads. Two contracts, two homes, because they really are two different claims.
+A door may declare the `realm` it belongs to — replication supervises a process, so a browser wires nothing for it and a host serving both realms asks rather than keeping its own list of what to skip. Each port is checked **at wiring**, not at the first read, and a refusal names the port, the door that needed it, and what it is for. The method lists are exactly what this package **calls** — no wider. akao's own byte driver has ten methods because its file door needs them; demanding ten here would impose a law this package does not live by, and the next host would implement six methods to satisfy a contract nobody reads. Two contracts, two homes, because they really are two different claims.
 
 ## The host injects what only it can know
 

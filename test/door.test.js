@@ -179,3 +179,15 @@ test("collections() with an engine of the wrong SHAPE is refused by name, at wir
     assert.throws(() => collections({ sql: "sqlite.db" }), /needs sql to be a function/)
     assert.throws(() => collections({ kv: {} }), /needs kv to be a function/)
 })
+
+test("a door may say which realm it belongs to, and a host can ASK", () => {
+    // Replication supervises a process; a browser realm wires nothing for it.
+    // Without this field a host serving both realms would keep its own list of
+    // doors to skip — the second home this registry exists to prevent. A door
+    // with no `realm` belongs to every realm, which is most of them.
+    assert.equal(NEEDS["replica()"].realm, "node")
+    for (const [door, needs] of Object.entries(NEEDS)) {
+        if (!needs.realm) continue
+        assert.ok(["node", "browser"].includes(needs.realm), `${door} claims realm "${needs.realm}", which is not one this package knows`)
+    }
+})
