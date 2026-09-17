@@ -84,10 +84,14 @@ export async function checkStore(store, { at = "udb-conformance" } = {}) {
         await store.del()
         check((await root().get("one").once()) === undefined, "the store's own del() must empty it — DB.wipe() is that call, and a store that keeps its rows makes a wipe a lie")
     } finally {
-        await store
-            .get(at)
-            .del?.()
-            .catch?.(() => {})
+        // Same rule as the driver kit: await, never `.catch()` on the answer.
+        // A store whose `del` is synchronous is conformant, and a kit that
+        // crashes on it reports a crash where it owes a verdict.
+        try {
+            await store.get(at).del?.()
+        } catch {
+            // cleaning up is a courtesy, not a verdict
+        }
     }
 
     if (broken.length) throw new Error(`UDB: this chain-store has the methods the port names and does not keep ${broken.length} of its promises:\n  - ${broken.join("\n  - ")}`)

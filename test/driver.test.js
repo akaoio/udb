@@ -66,3 +66,32 @@ test("the kit refuses a driver of the wrong SHAPE before it tests meaning", asyn
     await assert.rejects(() => checkDriver({ scope: "x" }), /missing readBytes\(\)/)
     await assert.rejects(() => checkDriver({ ...nodeDriver({ root: "." }), scope: "" }), /must declare scope/)
 })
+
+test("a SYNCHRONOUS port method is conformant, and the kit must not crash on one", async () => {
+    // The contract says "a function", not "a function that returns a promise".
+    // The first version of this kit called `.catch()` on what `remove()`
+    // answered with, so a host whose driver is synchronous got a TypeError from
+    // inside the kit — a crash where a verdict was owed. Measured against a real
+    // host's driver the day the kit shipped.
+    const root = mkdtempSync(join(tmpdir(), "udb-driver-sync-"))
+    try {
+        const honest = nodeDriver({ root })
+        const pending = []
+        const sync = {
+            ...honest,
+            remove: (path) => {
+                pending.push(honest.remove(path))
+            },
+            writeBytes: (path, bytes) => {
+                pending.push(honest.writeBytes(path, bytes))
+            }
+        }
+        // The stand-in is deliberately awkward: it answers undefined and does the
+        // work in the background, which is what "not a promise" looks like at its
+        // most inconvenient. The kit must still reach a verdict rather than throw.
+        await assert.rejects(() => checkDriver(sync), /does not keep/)
+        await Promise.allSettled(pending)
+    } finally {
+        rmSync(root, { recursive: true, force: true })
+    }
+})
