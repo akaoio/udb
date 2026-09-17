@@ -68,7 +68,13 @@ export async function checkStore(store, { at = "udb-conformance" } = {}) {
 
         // ── a subscriber hears a write that has SETTLED ─────────────────────
         const heard = []
-        const stop = root().get("watched").on((value) => heard.push(value))
+        // AWAITED: a port method may be async, and this one usually is — a store
+        // that reads the current value before it registers the subscriber has to
+        // be, and both known implementations do exactly that. A kit that
+        // subscribes without waiting races the very write it is about to make,
+        // and then reports the store as deaf. (It did, against a real host, the
+        // hour it shipped.)
+        const stop = await root().get("watched").on((value) => heard.push(value))
         await root().get("watched").put({ id: "watched", n: 4 })
         check(
             heard.some((value) => value?.n === 4),
@@ -80,15 +86,19 @@ export async function checkStore(store, { at = "udb-conformance" } = {}) {
         await root().get("two").del()
         check((await root().get("two").once()) === undefined, "del() must make a document unreadable afterwards")
 
-        // ── the store can be emptied ────────────────────────────────────────
-        await store.del()
-        check((await root().get("one").once()) === undefined, "the store's own del() must empty it — DB.wipe() is that call, and a store that keeps its rows makes a wipe a lie")
+        // ── the store can be emptied, the way the door empties it ───────────
+        // `del([])` with the EMPTY PATH, because that is the call `DB.wipe()`
+        // makes — `lives.store.del([])`. The first version of this kit called
+        // `del()` with no argument and reported a perfectly good store as
+        // keeping its rows: the kit was asking a question the doors never ask.
+        await store.del([])
+        check((await root().get("one").once()) === undefined, "del([]) must empty the whole store — DB.wipe() is that call, and a store that keeps its rows makes a wipe a lie")
     } finally {
         // Same rule as the driver kit: await, never `.catch()` on the answer.
         // A store whose `del` is synchronous is conformant, and a kit that
         // crashes on it reports a crash where it owes a verdict.
         try {
-            await store.get(at).del?.()
+            await store.get(at).del?.([])
         } catch {
             // cleaning up is a courtesy, not a verdict
         }

@@ -130,10 +130,15 @@ export function chainStore({ driver, root = [] } = {}) {
         },
         ready: Promise.resolve(),
         get: (segment = []) => node(Array.isArray(segment) ? segment : [segment]),
-        /** Empty the whole store. The `lives` mount calls this for DB.wipe(). */
-        del: async () => {
-            await driver.remove(root)
-            watchers.clear()
+        /**
+         * Empty a subtree — `del([])` is the whole store, which is the call
+         * `DB.wipe()` makes (`lives.store.del([])`). A path is accepted because
+         * that is the shape the door uses, not because emptying half a store is
+         * a common wish.
+         */
+        del: async (path = []) => {
+            await driver.remove([...root, ...path])
+            if (!path.length) watchers.clear()
         }
     }
 }
