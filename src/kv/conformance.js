@@ -53,6 +53,21 @@ export async function checkStore(store, { at = "udb-conformance" } = {}) {
         check((await root().get("one").once())?.n === 1, "a node that gained a child must still hold its own value")
         check((await root().get("one").get("deeper").once())?.n === 2, "and the child must be readable")
 
+        // ── it holds WHAT THE DOOR HANDS IT, not only objects ───────────────
+        // The lives mount passes a value through untouched and hosts write
+        // scalars there — a cursor, a count, a flag. A store that accepts only
+        // plain objects is applying the collections mount's rule one layer too
+        // low, and the failure is a write that throws in a thread nobody is
+        // watching. (Measured against a real host, which writes a cursor.)
+        for (const scalar of [1, "a string", true, null]) {
+            try {
+                await root().get("scalar").put(scalar)
+                check((await root().get("scalar").once()) === scalar, `a ${typeof scalar} must round-trip — the lives mount hands values through untouched`)
+            } catch (error) {
+                check(false, `a ${typeof scalar} must be storable: the door does not restrict what it passes down (${error.message})`)
+            }
+        }
+
         // ── a read of a BRANCH assembles the subtree ────────────────────────
         // The promise this kit did not ask for until 2026-09-17, and its absence
         // is why it once called two genuinely different stores conformant. A host
@@ -77,13 +92,20 @@ export async function checkStore(store, { at = "udb-conformance" } = {}) {
         await root().get("two").put({ id: "two", n: 3 })
         const seen = []
         await root().map((document, path) => {
-            seen.push([Array.isArray(path) ? path.at(-1) : path, document?.n])
+            seen.push([Array.isArray(path) ? path.at(-1) : path, document?.n ?? document])
         })
         const names = seen.map(([name]) => name)
         check(names.includes("one") && names.includes("two"), `map() must visit every child document — saw ${JSON.stringify(names)}`)
+        // The promise is about the PATH, not about the document's fields: a store
+        // holds what the door hands it, scalars included, so asserting on a
+        // field would be this kit deciding what a document may look like.
         check(
-            seen.every(([name, n]) => typeof name === "string" && n !== undefined),
+            seen.every(([name]) => typeof name === "string" && name.length > 0),
             "map() must hand the callback (document, path) with a path whose LAST segment is the id — the collections engine keys its rows off exactly that"
+        )
+        check(
+            seen.some(([name, value]) => name === "one" && value === 1),
+            "and the document beside the id must be the one written at it"
         )
 
         // ── a subscriber hears a write that has SETTLED ─────────────────────
