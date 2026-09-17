@@ -84,7 +84,12 @@ export const PORTS = {
         shape: "object",
         methods: ["readBytes", "writeBytes", "remove", "entries"],
         fields: ["scope"],
-        by: "host",
+        // A host MAY bring its own — akao injects a ten-verb file door it
+        // already had — but it no longer MUST: `driver()` answers with this
+        // package's own (OPFS in a browser, node:fs on a server), and
+        // `checkDriver()` is the behavioural half of this entry, which shape
+        // alone cannot state.
+        by: "host, or udb's own",
         serves: "bytes in one store of this realm"
     },
     load: { shape: "function", by: "host", serves: "the bytes at a path, through whatever tiers the host has" },

@@ -22,6 +22,7 @@ import { mkdtempSync, promises as fs } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, dirname } from "node:path"
 import { webcrypto } from "node:crypto"
+import { nodeDriver } from "../src/driver/node.js"
 
 /**
  * A real in-memory database, through the package's OWN engine.
@@ -39,28 +40,10 @@ export function diskRoot() {
     return mkdtempSync(join(tmpdir(), "UDB-real-"))
 }
 
-export function diskDriver(root) {
-    const at = (path) => join(root, ...path)
-    return {
-        // WHICH store this driver reads and writes — part of the contract since
-        // 0.10.0, so a cache inside UDB can tell two trees apart without the host
-        // stamping every entry itself.
-        scope: root,
-        readBytes: async (path) => {
-            try {
-                return new Uint8Array(await fs.readFile(at(path)))
-            } catch {
-                return null
-            }
-        },
-        writeBytes: async (path, bytes) => {
-            await fs.mkdir(dirname(at(path)), { recursive: true })
-            await fs.writeFile(at(path), bytes)
-        },
-        remove: async (path) => fs.rm(at(path), { recursive: true, force: true }),
-        entries: async (path) => (await fs.readdir(at(path), { withFileTypes: true })).map((entry) => ({ name: entry.name, isDir: entry.isDirectory() }))
-    }
-}
+// The node driver is the PACKAGE's now (src/driver/node.js). This helper was
+// where it lived while it was "just a test fixture", which was the evidence that
+// every host was writing it again — #5.
+export const diskDriver = (root) => nodeDriver({ root })
 
 const encoder = new TextEncoder()
 
