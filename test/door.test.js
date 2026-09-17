@@ -223,3 +223,19 @@ test("an OPTIONAL port may be absent, and is CHECKED when it is there", async ()
     // than from inside an engine three calls later.
     assert.throws(() => conform("fs()", { driver, parse: "not a function" }), /parse/)
 })
+
+test("a door the PACKAGE opens declares who wires it, so a host is not told to wire it twice", async () => {
+    // `fs()` builds the ladder out of its own wiring, so a host that opens the door
+    // has `loader()` wired already. Without `via`, a host walking this table is told
+    // to wire a door it never opens — and the only way to satisfy that is to hand
+    // `loader()` a second copy of the same answers, which is the second home the
+    // registry exists to prevent. Found by akao's seam test, which reads this table
+    // from outside and said so.
+    const { NEEDS } = await import("../src/contract.js")
+    assert.equal(NEEDS["loader()"].via, "fs()")
+    assert.equal(NEEDS["fs()"].via, undefined, "a door a HOST opens names nobody")
+    // And the ladder is still openable on its own — that is why it is declared at
+    // all rather than hidden inside `fs()`.
+    const { loader } = await import("../src/loader.js")
+    assert.equal(typeof loader, "function")
+})

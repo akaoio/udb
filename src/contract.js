@@ -144,7 +144,13 @@ export const NEEDS = {
     // void. The registry was describing the doors it had when it was written, which
     // is the drift a registry is supposed to prevent (measured the hour `fs()`
     // landed, by the host's own check going red).
-    "loader()": { required: ["driver", "urlOf"], optional: ["parse", "tier"] },
+    // `via` says: a host that opens `fs()` has this door wired already, because
+    // `fs()` builds the ladder out of its own wiring. Without it, a host walking
+    // this table is told to wire a door it never opens — and the only way to
+    // satisfy that is to hand `loader()` a wiring nobody uses, which is a second
+    // home for the same answers. A host that wants the ladder ALONE still opens
+    // this door directly, which is why it is declared rather than hidden.
+    "loader()": { required: ["driver", "urlOf"], optional: ["parse", "tier"], via: "fs()" },
     // The door needs only the store: an `origin` or `urlOf` is what gives it a
     // network tier, `parse`/`stringify` are what give it a vocabulary, and a host
     // that passes neither gets a door over its own store that speaks JSON — which
