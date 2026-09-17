@@ -132,3 +132,25 @@ test("a door whose move() leaves the source behind is a copy with a wrong name",
         rmSync(root, { recursive: true, force: true })
     }
 })
+
+test("a segment that is not a string is REFUSED by name, not guessed at", async () => {
+    // node:path throws a TypeError from inside itself on a number, and the statics
+    // engine above catches everything a read throws and reads it as "nothing at
+    // rest". Measured against a real host whose own law allows a number segment (a
+    // chain id): a 663-byte file that was plainly there answered null, and nothing
+    // in the failure mentioned a number.
+    const root = mkdtempSync(join(tmpdir(), "udb-driver-segment-"))
+    try {
+        const driver = nodeDriver({ root })
+        await assert.rejects(() => driver.readBytes(["chains", 1, "configs.json"]), /segment 1 .* is a number/)
+        await assert.rejects(() => driver.readBytes(["a", null]), /is null, not a string/)
+        await assert.rejects(() => driver.readBytes(["a", ["b", "c"]]), /an array .* spread it/)
+        await assert.rejects(() => driver.readBytes("a/b"), /a path is an ARRAY/)
+        // And the browser driver answers the same way, because the law is the path's.
+        const opfs = opfsDriver({ root: memoryDirectory() })
+        await assert.rejects(() => opfs.readBytes(["chains", 1]), /not a string/)
+        await assert.rejects(() => opfs.entries([{}]), /not a string/)
+    } finally {
+        rmSync(root, { recursive: true, force: true })
+    }
+})

@@ -28,16 +28,19 @@
  * rediscover that `getDirectoryHandle` on a file THROWS `TypeMismatchError`
  * rather than answering false.
  */
+import { pathOf } from "./path.js"
+
 const NOT_FOUND = new Set(["NotFoundError", "TypeMismatchError"])
 
 /** The directory handle for a path, optionally creating it on the way down. */
 async function directoryOf(root, path, create) {
     let handle = root
-    for (const segment of path) handle = await handle.getDirectoryHandle(segment, { create })
+    for (const segment of pathOf(path, "opfsDriver")) handle = await handle.getDirectoryHandle(segment, { create })
     return handle
 }
 
 async function fileOf(base, path, create) {
+    pathOf(path, "opfsDriver")
     const directory = await directoryOf(await base(), path.slice(0, -1), create)
     return directory.getFileHandle(path.at(-1), { create })
 }

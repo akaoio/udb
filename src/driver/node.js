@@ -1,5 +1,6 @@
 import { readFile, writeFile, mkdir, rm, readdir, stat, rename, copyFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
+import { pathOf } from "./path.js"
 
 /**
  * The byte driver for a Node realm: one directory tree, four verbs.
@@ -36,7 +37,7 @@ import { dirname, join, resolve } from "node:path"
  */
 export function nodeDriver({ root = "." } = {}) {
     const base = resolve(root)
-    const at = (path) => join(base, ...path)
+    const at = (path) => join(base, ...pathOf(path, "nodeDriver"))
     return {
         scope: base,
         readBytes: async (path) => {
