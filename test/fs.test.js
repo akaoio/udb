@@ -20,18 +20,6 @@ const open = (wiring = {}) => {
     return { door: fileDoor({ driver: nodeDriver({ root: at }), ...wiring }), at, clean: () => rmSync(at, { recursive: true, force: true }) }
 }
 
-/** Swallow the door's own error reports while a failure is deliberate. */
-async function quietly(body) {
-    const error = console.error
-    const said = []
-    console.error = (...args) => said.push(args.map(String).join(" "))
-    try {
-        return { result: await body(), said }
-    } finally {
-        console.error = error
-    }
-}
-
 test("a QUESTION answers, even about nothing — absence is not an incident", async () => {
     const store = open()
     try {
@@ -45,19 +33,58 @@ test("a QUESTION answers, even about nothing — absence is not an incident", as
     }
 })
 
-test("a COMMAND reports and says whether it happened", async () => {
+test("a COMMAND that fails THROWS — a step that cannot fail is the bug", async () => {
+    // The bill (akao #858): a copy that logged and answered `undefined` made every
+    // vendor step of a build incapable of failing. One red line in a thousand-line
+    // log, exit 0, and the page 404s that module the first time it is needed —
+    // neither build time nor test time. The optional case is a GUARD at the call
+    // site, never a silence inside the door.
     const store = open()
     try {
         assert.equal(await store.door.write(["a.json"], { a: 1 }), true)
         assert.deepEqual(await store.door.load(["a.json"]), { a: 1 })
         assert.equal(await store.door.remove(["a.json"]), true)
         assert.equal(await store.door.exists(["a.json"]), false)
-        // A caller that had to try/catch every write writes the same five lines
-        // everywhere, and eventually writes an empty catch instead.
-        const { result, said } = await quietly(() => store.door.move(["missing"], ["elsewhere"]))
-        assert.equal(result, false)
-        assert.equal(said.length, 1, "it reported")
-        assert.match(said[0], /FS\.move failed at missing/, "and the report names the verb and the path")
+        await assert.rejects(
+            () => store.door.move(["missing"], ["elsewhere"]),
+            (error) => {
+                assert.match(error.message, /move failed at missing/, "the verb and the path are in the message")
+                assert.equal(error.message.split("[FS]").length - 1, 1, "wrapped exactly once")
+                assert.ok(error.cause, "and the original survives as the cause")
+                return true
+            }
+        )
+    } finally {
+        store.clean()
+    }
+})
+
+test("nothing to write is not a failure and not a write", async () => {
+    // A caller building a document conditionally passes undefined on purpose.
+    const store = open()
+    try {
+        assert.equal(await store.door.write(["a.json"], undefined), false)
+        assert.equal(await store.door.exists(["a.json"]), false)
+    } finally {
+        store.clean()
+    }
+})
+
+test("a deep copy names the LEAF that failed, not the root of the walk", async () => {
+    // A message naming the root tells a reader which command was run, which they
+    // already knew, and hides which file could not be written.
+    const store = open()
+    try {
+        await store.door.write(["from", "deep", "leaf.json"], { a: 1 })
+        await store.door.write(["blocked"], "not a directory")
+        await assert.rejects(
+            () => store.door.copy(["from"], ["blocked", "under"]),
+            (error) => {
+                assert.match(error.message, /blocked\/under/, "the leaf is named")
+                assert.equal(error.message.split("[FS]").length - 1, 1, "and it is wrapped once, however deep the walk went")
+                return true
+            }
+        )
     } finally {
         store.clean()
     }
@@ -68,9 +95,7 @@ test("an object bound for a path with NO extension is refused, not written", asy
     // later by whoever tries to read it back.
     const store = open()
     try {
-        const { result, said } = await quietly(() => store.door.write(["configs"], { a: 1 }))
-        assert.equal(result, false)
-        assert.match(said[0], /an object needs an extension/)
+        await assert.rejects(() => store.door.write(["configs"], { a: 1 }), /an object needs an extension/)
         assert.equal(await store.door.exists(["configs"]), false, "and nothing landed")
     } finally {
         store.clean()
@@ -176,12 +201,12 @@ test("download names the file from the URL when the path does not", async () => 
     }
 })
 
-test("download reports a refusal instead of writing an error page to the store", async () => {
+test("download REFUSES a non-2xx instead of writing an error page into the store", async () => {
+    // The worst of the three outcomes, because every later read succeeds: an HTML
+    // error page sitting under the name of the asset.
     const store = open({ fetch: async () => ({ ok: false, status: 503 }) })
     try {
-        const { result, said } = await quietly(() => store.door.download("https://o/a.png", ["images"]))
-        assert.equal(result, false)
-        assert.match(said[0], /answered 503/)
+        await assert.rejects(() => store.door.download("https://o/a.png", ["images"]), /answered 503/)
         assert.equal(await store.door.exists(["images", "a.png"]), false)
     } finally {
         store.clean()
