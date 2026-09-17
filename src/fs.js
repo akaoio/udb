@@ -97,7 +97,20 @@ export function fs(wiring = {}) {
         // The store itself, so a caller that needs bytes is not forced through a
         // door that parses them.
         driver,
-        scope: driver.scope,
+        /**
+         * WHICH store this door reads — asked THROUGH the driver, never snapshotted.
+         *
+         * It was a snapshot for one commit, and that is the akao #858 defect in
+         * miniature: a host's store can MOVE under a door (a suite stages another
+         * tree, a worker inherits a root, a fork run points at one site's build), and
+         * a driver that answers `scope` through a getter is telling the truth while a
+         * door that copied it once is not. Measured with a probe: after the store
+         * moved, `driver.scope` said the new root and `door.scope` still said the old
+         * one. A mark can be forgotten; a question cannot.
+         */
+        get scope() {
+            return driver.scope
+        },
 
         // ── Questions ───────────────────────────────────────────────────────
         load,

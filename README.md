@@ -116,6 +116,35 @@ The browser one carries a detail no host should rediscover: **two writes to one 
 
 `checkDriver(driver)` is the other half of the contract. The registry checks SHAPE — four methods and a scope — and shape is not meaning: a driver whose `readBytes` throws on a miss has every method and still breaks the statics engine, which asks "is there an at-rest copy" on every read. Those meanings used to live only in what the engines happened to expect, so every host discovered them by breaking. Now they are assertions, exported, and a host runs them against its own driver in its own suite.
 
+## Files: the door, and the tier ladder under it
+
+```js
+import { fs } from "@akaoio/udb"
+
+const door = fs({ driver, origin: "https://example.com", parse, stringify, tier })
+
+await door.write(["configs", "app.json"], { theme: "dark" })   // throws if it did not happen
+const configs = await door.load(["configs", "app.json"])       // origin → store → tier
+await door.copy(["from"], ["to"], { skip })                    // → { copied, skipped }
+await door.dir(["src"], /\.js$/)                               // relative paths that match
+```
+
+`load` was the one port this package stated the LAW of — `checkLoad` names four promises and no host — while shipping no body for it. Every other port with a conformance kit has one here, so that asymmetry was a law with its body in the host's repository: the shape the seam exists to end.
+
+**The ORDER is this package's to state, because it owns the tier above it.** `statics` re-hashes the at-rest copy and calls a loader only once that copy is missing or stale, so reading the store FIRST here would hand back exactly the bytes just rejected — an unvalidated cache below a validated one, failing silently.
+
+| rung | when |
+|---|---|
+| the origin | whenever `urlOf(path)` answers a URL. What it serves is written through to the store as it lands, and a `{fresh:true}` **404 evicts** the at-rest copy — otherwise a file deleted at the source lives in the store forever |
+| the store | the last net, offline. Skipped entirely under `{fresh:true}`: fresh means "not from a copy", and answering from one makes the disagreement permanent |
+| `tier(path)` | one more source a host has — a swarm, a peer, a mirror. Exactly one, because a ladder with an open-ended list of tiers has an order nobody can state |
+
+`urlOf`/`origin` and `parse`/`stringify` are a **spelling** and a **vocabulary**, which is why they are parameters: this package paid once for owning a host's naming (it built the address of a deployed hash by swapping a file's extension for `.hash`). With no `parse` it reads JSON or text, which is what "no vocabulary of my own" means. A path with no origin means the store IS the origin — so nothing here asks which realm it is in.
+
+**A QUESTION answers; a COMMAND throws.** `exists` `isDir` `list` `load` `find` never throw, and an absent path is an ordinary answer. `write` `remove` `move` `ensure` `copy` `download` fail loudly, wrapped once, naming the verb and the path — `copy` at the LEAF that failed, not the root of the walk. The first draft did the opposite, and akao had already paid for that twice: a `copy` that logged and answered `undefined` made every vendor step of a build incapable of failing, and a `remove` that caught a malformed-path `TypeError` and answered `false` reported a bug in the caller as a fact about the disk. The optional case is a GUARD at the call site, never a silence inside the door.
+
+`copyTree` / `matches` / `find` are also exported on their own, next to `walk`, for a host that wants the traversal without the door.
+
 ## Documents in a tree: the chain-store
 
 ```js
@@ -156,7 +185,7 @@ import { createDB, statics, collections } from "@akaoio/udb"
 
 const DB = createDB({
     statics: statics({
-        load,        // (path, {fresh, quiet}) → data — your tiered loader (HTTP/disk/P2P)
+        load,        // (path, {fresh, quiet}) → data — yours, or `loader()` below
         driver,      // { scope, readBytes, writeBytes, remove, entries } — OPFS, node:fs, anything
         infohash,    // (bytes, name) → { v1 } — the content address your build publishes
         hashes,      // (path) → { ok, status, hash } — the hash your ORIGIN states for that path
