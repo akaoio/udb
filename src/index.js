@@ -160,5 +160,9 @@ export { REPLICATED_PRAGMAS, BUSY_MS } from "./replica/pragmas.js"
 // conformance kit travels with it: a host injecting its OWN driver runs the same
 // assertions against it, in its own suite.
 export { driver, checkDriver } from "./driver/index.js"
+// The chain-store two of the ports want, over that same driver — and the kit
+// that says what a store MEANS, for a host wiring its own.
+export { chainStore } from "./kv/index.js"
+export { checkStore } from "./kv/conformance.js"
 export { DRIVER, STORE, requires, requiresFunction } from "./contract.js"
 export default createDB
