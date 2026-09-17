@@ -83,7 +83,17 @@ export async function checkDriver(driver, { at = ["udb-conformance"] } = {}) {
         const afterwards = await driver.readBytes(nested).catch(() => null)
         check(afterwards === null || afterwards === undefined || afterwards.length === 0, "remove() must take the whole subtree, not just the top entry")
     } finally {
-        await driver.remove(at).catch(() => {})
+        // `await` rather than `.catch()` on the return value: a port method may
+        // be synchronous — the contract says "a function", not "a function that
+        // returns a promise" — and calling `.catch` on what a sync `remove`
+        // answers with is a TypeError from inside this kit, which reports a
+        // crash where it owes a verdict. Found by running it against a real
+        // host's driver the day it shipped.
+        try {
+            await driver.remove(at)
+        } catch {
+            // cleaning up is a courtesy, not a verdict
+        }
     }
 
     if (broken.length) throw new Error(`UDB: this driver has every method the port names and does not keep ${broken.length} of its promises:\n  - ${broken.join("\n  - ")}`)
