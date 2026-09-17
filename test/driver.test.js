@@ -202,3 +202,88 @@ test("a path names a place INSIDE the store — absolute and `..` are refused", 
         rmSync(root, { recursive: true, force: true })
     }
 })
+
+/**
+ * The DOOR — `driver()` — which had no test of its own until now.
+ *
+ * What it decides is which backend a realm can even have, and it used to decide
+ * that by asking whether an OPFS exists. Node answers no and gets the Node
+ * driver, which is right by accident; a browser in a private window answers no
+ * too and got `import "node:fs/promises"` — a module-resolution error, in a realm
+ * with no filesystem, three layers from the cause. Nothing here covered it
+ * because nothing here loaded this file at all.
+ *
+ * `globals` is what makes the branches measurable: the realm is decided from the
+ * object handed in, so a Node process can ask what a browser would have been
+ * told. The drivers themselves still reach for the real platform — these cases
+ * assert WHICH one was chosen, never that OPFS works in Node.
+ */
+const NODE_GLOBALS = { process: { versions: { node: "24.0.0" } } }
+const BROWSER_NO_OPFS = { location: { origin: "https://example.com" }, navigator: {} }
+const BROWSER_WITH_OPFS = { location: { origin: "https://example.com" }, navigator: { storage: { getDirectory: () => {} } } }
+
+test("door: a Node realm gets the Node driver, rooted where it was asked", async () => {
+    const { driver } = await import("../src/driver/index.js")
+    const at = mkdtempSync(join(tmpdir(), "udb-door-"))
+    const built = await driver({ root: at }, NODE_GLOBALS)
+    assert.equal(built.scope, at, "the Node driver names its store by the root it resolved")
+    await built.writeBytes(["a.txt"], new TextEncoder().encode("x"))
+    assert.equal(new TextDecoder().decode(await built.readBytes(["a.txt"])), "x", "it wrote under the root it was handed")
+    rmSync(at, { recursive: true, force: true })
+})
+
+test("door: a browser realm WITH an OPFS gets the OPFS driver", async () => {
+    const { driver } = await import("../src/driver/index.js")
+    const built = await driver({ scope: "OPFS" }, BROWSER_WITH_OPFS)
+    // Construction only — the driver reaches for the real platform when CALLED,
+    // and there is no OPFS in Node to call. What is decidable here is the choice.
+    assert.equal(built.scope, "OPFS")
+    assert.equal(typeof built.writeBytes, "function")
+})
+
+test("door: a browser realm with NO OPFS is refused BY NAME, not handed node:fs", async () => {
+    const { driver } = await import("../src/driver/index.js")
+    await assert.rejects(() => driver({}, BROWSER_NO_OPFS), (error) => {
+        assert.match(error.message, /no Origin Private File System/, "it names the missing platform")
+        assert.match(error.message, /supportsOPFS/, "and points at the question a host should ask first")
+        assert.doesNotMatch(error.message, /node:fs/, "the old failure named node:fs in a realm that has none")
+        return true
+    })
+})
+
+test("door: a realm that is NEITHER says so, instead of guessing a backend", async () => {
+    const { driver } = await import("../src/driver/index.js")
+    await assert.rejects(() => driver({}, {}), /neither Node nor a browser/)
+})
+
+test("door: the realm decides the backend, NOT the presence of a store", async () => {
+    // The regression in one line: a Node realm has no OPFS either, so asking
+    // about OPFS first gives the right answer here and the wrong one in a page.
+    const { driver } = await import("../src/driver/index.js")
+    const { supportsOPFS } = await import("../src/driver/index.js")
+    assert.equal(supportsOPFS(NODE_GLOBALS), false, "Node has no OPFS")
+    const built = await driver({ root: "." }, NODE_GLOBALS)
+    assert.equal(typeof built.entries, "function", "and still gets a driver, by REALM")
+    assert.equal(supportsOPFS(BROWSER_NO_OPFS), false, "so does a private window — the same answer")
+    await assert.rejects(() => driver({}, BROWSER_NO_OPFS), /browser realm/, "but a different outcome, which is the fix")
+})
+
+test("supportsOPFS ANSWERS, even when the platform refuses to be asked", async () => {
+    const { supportsOPFS } = await import("../src/driver/opfs.js")
+    // A predicate that throws turns "no OPFS" into a dead page, in the realm that
+    // was already the unlucky one. `navigator.storage` is a getter and a getter on
+    // an object the host does not own may refuse; optional chaining guards an
+    // absent property, never an angry one.
+    const angry = {
+        get navigator() {
+            throw new Error("SecurityError: storage access denied")
+        }
+    }
+    assert.equal(supportsOPFS(angry), false)
+    const angryStorage = { navigator: { get storage() { throw new Error("SecurityError") } } }
+    assert.equal(supportsOPFS(angryStorage), false)
+    // And the ordinary answers are unchanged.
+    assert.equal(supportsOPFS({}), false)
+    assert.equal(supportsOPFS({ navigator: { storage: { getDirectory: () => {} } } }), true)
+    assert.equal(supportsOPFS({ navigator: { storage: { getDirectory: "not a function" } } }), false)
+})

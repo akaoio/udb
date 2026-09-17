@@ -14,7 +14,7 @@
  *   statics — read-only, content-addressed loader (statics.js engine):
  *             RAM memo → at-rest bytes validated by their own infohash →
  *             the host's loader. ONE at-rest copy. once/on/map.
- *   local   — the small-config kv (local.js engine). peek/put/del/on, flat
+ *   local   — the small-config kv (local.js engine). peek/put/del/clear/on, flat
  *             keys only. peek is synchronous BY CONTRACT (hosts read these
  *             at module-import time).
  *   lives   — live mirrors. put persists AND announces the same-path

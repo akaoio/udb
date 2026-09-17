@@ -15,7 +15,7 @@ DB.get("orders").find({ status: "open" }).on(update)         // live query
 | mount | what it is | verbs |
 |---|---|---|
 | `statics` | read-only, **content-addressed**: RAM memo → at-rest bytes validated by their own BEP3 infohash → the host's loader. ONE at-rest copy; a cached body proves itself, so no stale memo can poison it. | `once` `on` `map` |
-| `local` | synchronous small-config kv (memo over localStorage; memo-only without it) | `peek` `put` `del` `on` |
+| `local` | synchronous small-config kv (memo over localStorage; memo-only without it) | `peek` `put` `del` `clear` `on` |
 | `lives` | live mirrors with ONE writer: `put` persists and announces the same-path fragment through `DB.announce` | `put` `once` `on` `map` |
 | free roots | collections: documents by `_id`, `find(filter)` at the root, `find().on()` keeps the query live | `put` `once` `del` `find` |
 
