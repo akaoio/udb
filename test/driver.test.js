@@ -107,3 +107,28 @@ test("NO method's return value is ever .catch()-ed inside the kits — the rule,
         assert.ok(!/\.catch\s*\(/.test(code), `${file} calls .catch() on something a port answered with — a port method may be synchronous, and that is a crash where a verdict is owed`)
     }
 })
+
+test("both drivers offer the whole file door, and keep its promises too", async () => {
+    // Six verbs beyond the port. A host with a file layer of its own needs them,
+    // and was writing them over the same backend this package already talks to.
+    const { checkFileDoor } = await import("../src/driver/conformance.js")
+    const root = mkdtempSync(join(tmpdir(), "udb-file-door-"))
+    try {
+        await checkFileDoor(nodeDriver({ root }))
+        await checkFileDoor(opfsDriver({ root: memoryDirectory() }))
+    } finally {
+        rmSync(root, { recursive: true, force: true })
+    }
+})
+
+test("a door whose move() leaves the source behind is a copy with a wrong name", async () => {
+    const { checkFileDoor } = await import("../src/driver/conformance.js")
+    const root = mkdtempSync(join(tmpdir(), "udb-file-door-bad-"))
+    try {
+        const honest = nodeDriver({ root })
+        await assert.rejects(() => checkFileDoor({ ...honest, move: honest.copyFile }), /source must be GONE/)
+        await assert.rejects(() => checkFileDoor({ ...honest, isDir: async () => true }), /FALSE for a file/)
+    } finally {
+        rmSync(root, { recursive: true, force: true })
+    }
+})

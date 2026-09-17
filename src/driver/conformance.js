@@ -105,4 +105,60 @@ export async function checkDriver(driver, { at = ["udb-conformance"] } = {}) {
     return true
 }
 
+/**
+ * The SIX verbs beyond the port — for a driver that offers a whole file door.
+ *
+ * The port demands four, because four is what this package calls. A host with a
+ * file layer of its own needs `list exists isDir mkdir move copyFile`, and this
+ * package ships them (`nodeDriver`, `opfsDriver`) so the host stops writing them
+ * over the same backend. Anything shipped needs its meaning stated, and OPFS is
+ * where the meanings are least obvious: there is no stat and no rename, so
+ * `isDir` is a directory-open attempt and `move` is copy-then-remove.
+ *
+ * Optional on purpose: a driver that answers only the port's four is CONFORMANT.
+ * This is the extra promise, asked of the drivers that make it.
+ */
+export async function checkFileDoor(driver, { at = ["udb-file-door"] } = {}) {
+    const extra = ["list", "exists", "isDir", "mkdir", "move", "copyFile"]
+    const missing = extra.filter((verb) => typeof driver[verb] !== "function")
+    if (missing.length) throw new Error(`UDB: this driver offers no file door — ${missing.map((verb) => `${verb}()`).join(", ")} missing. The PORT needs only ${PORTS.driver.methods.join(", ")}, so this is a check to run on a driver that claims more.`)
+
+    const encoder = new TextEncoder()
+    const broken = []
+    const check = (ok, promise) => {
+        if (!ok) broken.push(promise)
+    }
+
+    try {
+        await driver.remove(at)
+        await driver.writeBytes([...at, "one.json"], encoder.encode("{}"))
+
+        check((await driver.exists([...at, "one.json"])) === true, "exists() must answer true for a file that is there")
+        check((await driver.exists([...at, "nope.json"])) === false, "and false for one that is not — not throw, and not a truthy handle")
+        check((await driver.isDir(at)) === true, "isDir() must answer true for a directory")
+        check((await driver.isDir([...at, "one.json"])) === false, "and FALSE for a file — on a store with no stat, asking is opening the name as a directory, which THROWS rather than answering")
+        check((await driver.list(at)).includes("one.json"), "list() must name what is in a directory")
+
+        await driver.mkdir([...at, "made"])
+        check((await driver.isDir([...at, "made"])) === true, "mkdir() must create a directory that was not there — an empty one, which no write can express")
+
+        await driver.copyFile([...at, "one.json"], [...at, "made", "two.json"])
+        check((await driver.exists([...at, "made", "two.json"])) === true, "copyFile() must create the copy, parents included")
+        check((await driver.exists([...at, "one.json"])) === true, "and must leave the original where it was")
+
+        await driver.move([...at, "made", "two.json"], [...at, "made", "three.json"])
+        check((await driver.exists([...at, "made", "three.json"])) === true, "move() must create the destination, parents included")
+        check((await driver.exists([...at, "made", "two.json"])) === false, "and the source must be GONE — a move that leaves both is a copy with a wrong name")
+    } finally {
+        try {
+            await driver.remove(at)
+        } catch {
+            // cleaning up is a courtesy, not a verdict
+        }
+    }
+
+    if (broken.length) throw new Error(`UDB: this file door does not keep ${broken.length} of its promises:\n  - ${broken.join("\n  - ")}`)
+    return true
+}
+
 export default checkDriver

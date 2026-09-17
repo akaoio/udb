@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir, rm, readdir } from "node:fs/promises"
+import { readFile, writeFile, mkdir, rm, readdir, stat, rename, copyFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 
 /**
@@ -62,6 +62,39 @@ export function nodeDriver({ root = "." } = {}) {
                 if (error?.code === "ENOENT" || error?.code === "ENOTDIR") return []
                 throw error
             }
+        },
+        // ── The file-door verbs ────────────────────────────────────────────
+        // Four verbs are what THIS package calls; these six are what a host with
+        // a file layer of its own needs, and every one of them was being written
+        // again by that host over the same backend. The port still demands four
+        // (src/contract.js) — a package may ship more than it asks for, and
+        // asking for ten would impose a law this package does not live by.
+        list: async (path) => (await readdir(at(path)).catch(() => [])).slice(),
+        exists: async (path) => {
+            try {
+                await stat(at(path))
+                return true
+            } catch {
+                return false
+            }
+        },
+        isDir: async (path) => {
+            try {
+                return (await stat(at(path))).isDirectory()
+            } catch {
+                return false
+            }
+        },
+        mkdir: async (path) => {
+            await mkdir(at(path), { recursive: true })
+        },
+        move: async (from, to) => {
+            await mkdir(dirname(at(to)), { recursive: true })
+            await rename(at(from), at(to))
+        },
+        copyFile: async (from, to) => {
+            await mkdir(dirname(at(to)), { recursive: true })
+            await copyFile(at(from), at(to))
         }
     }
 }

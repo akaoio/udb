@@ -95,6 +95,10 @@ await checkDriver(myOwnDriver)                    // does yours keep the same pr
 
 `driver` is a port, so a host with its own file layer keeps injecting that. What changed is that having one is no longer a precondition: most hosts want documents in a directory, and writing the same four methods against `node:fs` is work every one of them was doing identically — this package had even written it once, in its own test fixtures, which is the clearest evidence it belonged here.
 
+Both drivers also offer the **six verbs beyond the port** — `list exists isDir mkdir move copyFile` — because a host with a file layer of its own needs them and was writing them over this same backend. The port still demands four: a package may ship more than it asks for, and asking for ten would impose a law it does not live by. `checkFileDoor(driver)` is the extra promise, and a driver that answers only the four is still conformant.
+
+OPFS has no `stat` and no `rename`, which is where those meanings are least obvious: `isDir` is answered by TRYING to open the name as a directory (it THROWS on a file rather than answering false), `exists` by looking among the parent's keys, and `move` is a copy followed by a remove.
+
 The browser one carries a detail no host should rediscover: **two writes to one path at the same time throw `NoModificationAllowedError`**, because OPFS refuses a second writable while one is open. A driver without a per-path queue passes every test and breaks the day the app gets busy.
 
 `checkDriver(driver)` is the other half of the contract. The registry checks SHAPE — four methods and a scope — and shape is not meaning: a driver whose `readBytes` throws on a miss has every method and still breaks the statics engine, which asks "is there an at-rest copy" on every read. Those meanings used to live only in what the engines happened to expect, so every host discovered them by breaking. Now they are assertions, exported, and a host runs them against its own driver in its own suite.
