@@ -239,3 +239,18 @@ test("a door the PACKAGE opens declares who wires it, so a host is not told to w
     const { loader } = await import("../src/loader.js")
     assert.equal(typeof loader, "function")
 })
+
+test("the printer survives every shape the registry can declare — it crashed once", async () => {
+    // `npm run ports` assumed "not a function" meant "an interface with methods", and
+    // it threw the hour `vocabulary()` declared an array and a plain object. The suite
+    // stayed green because nothing ran it: a printout of the seam is the first thing a
+    // host reads, and it had no assertion of its own. Running it here is the whole fix
+    // — a crash in the reader of the registry is a crash in the answer to "what must I
+    // give you".
+    const { execFileSync } = await import("node:child_process")
+    const { fileURLToPath } = await import("node:url")
+    const bin = fileURLToPath(new URL("../bin/ports.js", import.meta.url))
+    const printed = execFileSync(process.execPath, [bin], { encoding: "utf8" })
+    for (const door of Object.keys(NEEDS)) assert.ok(printed.includes(door), `every door is printed — ${door} is missing`)
+    for (const port of Object.keys(PORTS)) assert.ok(printed.includes(port), `and every port — ${port} is missing`)
+})

@@ -106,6 +106,8 @@ export const PORTS = {
     tier: { shape: "function", by: "host", serves: "one more source below the store — a swarm, a peer, a mirror" },
     open: { shape: "function", by: "host", serves: "a store for one root — what a root MEANS is the host's" },
     arrived: { shape: "function", by: "host", serves: "the root an entry point has already put wherever this host collects them, or nothing" },
+    extensions: { shape: "array", by: "host", serves: "more suffixes this host calls text, beyond the ones that are text everywhere" },
+    codecs: { shape: "object", by: "host", serves: "a format whose PARSER the host ships — YAML in a page only exists if its bytes were built in" },
     infohash: { shape: "function", by: "host", serves: "the content address of bytes" },
     hashes: { shape: "function", by: "host", serves: "the address a path was PUBLISHED under" },
     metadata: { shape: "function", by: "host", serves: "whether a path is a sidecar rather than data" },
@@ -164,6 +166,10 @@ export const NEEDS = {
     // read once, refuse a root that arrives after a read of the fallback — is this
     // package's, because its own caches are keyed by the store.
     "realm()": { required: ["open"], optional: ["arrived"] },
+    // Both ports are the EDGES of a vocabulary: a suffix only this host calls text,
+    // and a format only this host ships a parser for. The middle — JSON, CSV/TSV,
+    // what "text" means, and what an unparsable file answers — is the door's.
+    "vocabulary()": { required: [], optional: ["extensions", "codecs"] },
     // `realm` is how a door says it cannot exist everywhere. Replication
     // supervises a process, so a browser realm wires nothing for it — and a host
     // that serves both realms must be able to ASK which doors apply to the one it
@@ -258,11 +264,30 @@ export function conform(who, wiring = {}) {
     return wiring
 }
 
-/** One port, by its declaration. */
+/**
+ * One port, by its declaration.
+ *
+ * Every SHAPE the registry can write down is enforced here. That is not obvious
+ * bookkeeping: a shape the table declares and this function ignores is a declaration
+ * narrower than its own law, and the host reading the table would be told a promise
+ * nothing keeps. `array` and `object` arrived with `vocabulary()` and are checked
+ * from the same hour.
+ */
 function check(name, value, door, label = name) {
     const port = PORTS[name]
     if (!port) throw new Error(`UDB: ${door} asked for a port named "${name}" that contract.js does not declare — the registry is the one home of the seam`)
     if (port.shape === "function") return requiresFunction(value, label, door)
+    if (port.shape === "array") {
+        if (!Array.isArray(value)) throw new Error(`UDB: ${door} needs ${label} to be an array — the host injects it (${port.serves}), got ${value === null ? "null" : typeof value}`)
+        return value
+    }
+    if (port.shape === "object") {
+        // A plain bag of values, not an interface: `methods` is what says "an
+        // interface", and a port with neither is the case this branch is for.
+        if (!port.methods && (typeof value !== "object" || value === null || Array.isArray(value)))
+            throw new Error(`UDB: ${door} needs ${label} to be a plain object — the host injects it (${port.serves}), got ${value === null ? "null" : Array.isArray(value) ? "an array" : typeof value}`)
+        if (!port.methods) return value
+    }
     return requires(value, port.methods, label, door, port.fields ?? [])
 }
 

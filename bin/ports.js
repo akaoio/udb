@@ -11,7 +11,18 @@ import { PORTS, NEEDS } from "../src/contract.js"
 const width = Math.max(...Object.keys(PORTS).map((name) => name.length))
 console.log("\nPorts — what a host implements, and what UDB calls on it:\n")
 for (const [name, port] of Object.entries(PORTS)) {
-    const shape = port.shape === "function" ? "function" : `object { ${port.methods.join(", ")}${port.fields?.length ? `, ${port.fields.join(", ")} (string)` : ""} }`
+    // Every shape the registry can DECLARE is printed. This line used to assume that
+    // "not a function" meant "an interface with methods", and it CRASHED the hour
+    // `vocabulary()` declared an array and a plain object — while the suite stayed
+    // green, because nothing ran the printer. `test/door.test.js` runs it now.
+    const shape =
+        port.shape === "function"
+            ? "function"
+            : port.methods
+              ? `object { ${port.methods.join(", ")}${port.fields?.length ? `, ${port.fields.join(", ")} (string)` : ""} }`
+              : port.shape === "array"
+                ? "array"
+                : "object"
     console.log(`  ${name.padEnd(width)}  by ${port.by.padEnd(5)}  ${shape}`)
     console.log(`  ${" ".repeat(width)}  ${port.serves}`)
 }
