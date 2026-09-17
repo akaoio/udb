@@ -180,3 +180,25 @@ test("a FILE is not an empty directory — the promise that turned every file in
         rmSync(root, { recursive: true, force: true })
     }
 })
+
+test("a path names a place INSIDE the store — absolute and `..` are refused", async () => {
+    // `node:path.join` cannot enforce this and does not say so: join("/root",
+    // "/etc/passwd") is "/root/etc/passwd" and join("/a/b/c", "..", "..") is "/a"
+    // — the first is a different place than the caller asked for, the second is
+    // OUTSIDE the store, and both are silent. Measured on the host that first
+    // adopted these drivers: a write with an absolute segment landed at
+    // <root>/home/x/akao/package.json and nothing said a word.
+    const root = mkdtempSync(join(tmpdir(), "udb-inside-"))
+    try {
+        for (const driver of [nodeDriver({ root }), opfsDriver({ root: memoryDirectory() })]) {
+            await assert.rejects(() => driver.readBytes(["/etc", "passwd"]), /OUTSIDE this store/)
+            await assert.rejects(() => driver.writeBytes(["/tmp", "x"], new Uint8Array(0)), /OUTSIDE this store/)
+            await assert.rejects(() => driver.entries(["..", ".."]), /OUTSIDE this store/)
+            await assert.rejects(() => driver.readBytes(["C:", "x"]), /OUTSIDE this store/)
+            // `.` addresses the same place, so it is not an escape.
+            assert.equal(await driver.readBytes([".", "nothing.json"]), null)
+        }
+    } finally {
+        rmSync(root, { recursive: true, force: true })
+    }
+})
