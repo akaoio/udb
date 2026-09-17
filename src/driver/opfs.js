@@ -106,7 +106,14 @@ async function entriesThrough(base, path) {
         for await (const handle of directory.values()) out.push({ name: handle.name, isDir: handle.kind === "directory" })
         return out
     } catch (error) {
-        if (NOT_FOUND.has(error?.name)) return []
+        // `NotFoundError` is "nothing there" — walking is a statement about what
+        // IS there. `TypeMismatchError` is the platform saying the name exists and
+        // is a FILE, which is a different thing: answering `[]` for it is how a
+        // caller mistakes a file for an empty directory (see node.js for the
+        // measurement — a build read every file as a directory the day a driver
+        // started answering `[]`).
+        if (error?.name === "NotFoundError") return []
+        if (error?.name === "TypeMismatchError") throw new Error(`[udb/driver] entries(${JSON.stringify(path)}) — that path is a FILE, not a directory. A file has no entries, and answering an empty list would let a caller read it as an empty directory. Ask isDir() to tell them apart.`)
         throw error
     }
 }
