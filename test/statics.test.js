@@ -360,3 +360,25 @@ test("wipe clears RAM everywhere but at-rest only in the browser", async () => {
     await web.engine.wipe()
     assert.equal(await web.driver.readBytes(["statics", "j.json"]), null)
 })
+
+test("the loader's contract: a miss ANSWERS undefined, and fresh is accepted", async () => {
+    const { checkLoad } = await import("../src/statics/conformance.js")
+    await checkLoad(async () => undefined)
+    // The two shapes that break reads, each caught by the promise it broke.
+    await assert.rejects(
+        () =>
+            checkLoad(async () => {
+                throw new Error("ENOENT")
+            }),
+        /must ANSWER, not throw/
+    )
+    await assert.rejects(() => checkLoad(async () => null), /must answer undefined/)
+    await assert.rejects(
+        () =>
+            checkLoad(async (path, options) => {
+                if (options?.fresh) throw new Error("unsupported")
+                return undefined
+            }),
+        /\{ fresh: true \} must be accepted/
+    )
+})
