@@ -38,6 +38,26 @@ import { pathOf } from "./path.js"
 export function nodeDriver({ root = "." } = {}) {
     const base = resolve(root)
     const at = (path) => join(base, ...pathOf(path, "nodeDriver"))
+
+    /** One implementation, because `list` and `entries` answer one question. */
+    const entriesOf = async (path) => {
+        try {
+            return (await readdir(at(path), { withFileTypes: true })).map((entry) => ({ name: entry.name, isDir: entry.isDirectory() }))
+        } catch (error) {
+            if (error?.code === "ENOENT") return [] // nothing there: walking is a statement about what IS there
+            // A path that EXISTS and is not a directory is a different thing, and
+            // answering `[]` for it is how a host mistakes a file for an empty
+            // directory. Measured 2026-09-17: a host tested "is this a directory"
+            // by listing it and checking the answer was an array — correct against
+            // a driver that threw, and every file became a directory the moment one
+            // answered `[]`. The build stopped with "carries configs.yaml AND the
+            // subdirectories configs.yaml, pools.yaml", a sentence that cannot be
+            // true.
+            if (error?.code === "ENOTDIR") throw new Error(`[udb/driver] entries(${JSON.stringify(path)}) — that path is a FILE, not a directory. A file has no entries, and answering an empty list would let a caller read it as an empty directory. Ask isDir() to tell them apart.`)
+            throw error
+        }
+    }
+
     return {
         scope: base,
         readBytes: async (path) => {
@@ -56,21 +76,16 @@ export function nodeDriver({ root = "." } = {}) {
         remove: async (path) => {
             await rm(at(path), { recursive: true, force: true })
         },
-        entries: async (path) => {
-            try {
-                return (await readdir(at(path), { withFileTypes: true })).map((entry) => ({ name: entry.name, isDir: entry.isDirectory() }))
-            } catch (error) {
-                if (error?.code === "ENOENT" || error?.code === "ENOTDIR") return []
-                throw error
-            }
-        },
+        entries: (path) => entriesOf(path),
         // ── The file-door verbs ────────────────────────────────────────────
         // Four verbs are what THIS package calls; these six are what a host with
         // a file layer of its own needs, and every one of them was being written
         // again by that host over the same backend. The port still demands four
         // (src/contract.js) — a package may ship more than it asks for, and
         // asking for ten would impose a law this package does not live by.
-        list: async (path) => (await readdir(at(path)).catch(() => [])).slice(),
+        // Through `entries`, so both answer the same way about a file and about a
+        // missing directory — two spellings of one question drift apart.
+        list: async (path) => (await entriesOf(path)).map((entry) => entry.name),
         exists: async (path) => {
             try {
                 await stat(at(path))

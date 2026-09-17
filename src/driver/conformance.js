@@ -78,6 +78,26 @@ export async function checkDriver(driver, { at = ["udb-conformance"] } = {}) {
         const plain = listed.find((entry) => (entry?.name ?? entry) === "one.json")
         check(!plain?.isDir, "entries() must NOT mark a file as a directory")
 
+        // ── a FILE is not an empty directory ───────────────────────────────
+        // The promise this kit did not ask for until 2026-09-17, and its absence
+        // let a driver turn every file in a host's tree into a directory: that
+        // host tested "is this a directory" by LISTING it and checking the answer
+        // was an array, which is correct against a driver that throws and wrong
+        // against one that answers `[]`. Its build stopped with "carries
+        // configs.yaml AND the subdirectories configs.yaml, pools.yaml" — a
+        // sentence that cannot be true.
+        try {
+            await driver.entries(file)
+            check(false, "entries() of a path that is a FILE must be refused, not answered with [] — an empty list is how a caller mistakes a file for an empty directory")
+        } catch {
+            // refused, which is the promise
+        }
+        try {
+            check((await driver.entries([...at, "nowhere"])).length === 0, "while a directory that does not EXIST still answers [] — the two are different questions")
+        } catch {
+            check(false, "entries() of a directory that does not exist must answer [], not throw")
+        }
+
         // ── remove takes the subtree with it ────────────────────────────────
         await driver.remove(at)
         let afterwards = null

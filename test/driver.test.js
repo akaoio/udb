@@ -154,3 +154,29 @@ test("a segment that is not a string is REFUSED by name, not guessed at", async 
         rmSync(root, { recursive: true, force: true })
     }
 })
+
+test("a FILE is not an empty directory — the promise that turned every file into one", async () => {
+    // Measured against a real host: it tested "is this a directory" by LISTING the
+    // path and checking the answer was an array — correct against a driver that
+    // throws, wrong against one that answers []. Its build stopped with "carries
+    // configs.yaml AND the subdirectories configs.yaml, pools.yaml", a sentence
+    // that cannot be true, and the kit had never asked the question.
+    const root = mkdtempSync(join(tmpdir(), "udb-notdir-"))
+    try {
+        const driver = nodeDriver({ root })
+        await driver.writeBytes(["a.json"], new TextEncoder().encode("1"))
+        await assert.rejects(() => driver.entries(["a.json"]), /is a FILE, not a directory/)
+        await assert.rejects(() => driver.list(["a.json"]), /is a FILE, not a directory/)
+        assert.deepEqual(await driver.entries(["nowhere"]), [], "while a directory that does not exist still answers []")
+        assert.deepEqual(await driver.list(["nowhere"]), [])
+
+        // The browser driver answers the same way: the platform says
+        // TypeMismatchError for a file, which is not NotFoundError.
+        const opfs = opfsDriver({ root: memoryDirectory() })
+        await opfs.writeBytes(["b.json"], new TextEncoder().encode("1"))
+        await assert.rejects(() => opfs.entries(["b.json"]), /is a FILE, not a directory/)
+        assert.deepEqual(await opfs.entries(["nowhere"]), [])
+    } finally {
+        rmSync(root, { recursive: true, force: true })
+    }
+})
