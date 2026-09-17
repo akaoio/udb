@@ -30,7 +30,7 @@
  */
 import { GatewayNode } from "./gateway.js"
 import { Local } from "./local.js"
-import { STORE, requires } from "./contract.js"
+import { conform } from "./contract.js"
 
 // Plain-data deep clone that simply drops functions — announce fragments are
 // data by definition, and the transport must never share references with the
@@ -66,7 +66,7 @@ export function createDB({ statics, lives, collections, local = Local }) {
     // without `del` answered `DB.wipe()` with a TypeError from inside this file
     // (see contract.js). `statics` and `collections` check their own injections
     // where they are built.
-    requires(lives?.store, STORE, "lives.store", "createDB()")
+    conform("createDB().lives", { store: lives?.store })
     const MOUNTS = {
         statics: {
             name: "statics",

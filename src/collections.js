@@ -16,6 +16,7 @@
  * both engines so parity is testable.
  */
 import { match, compile } from "./filter.js"
+import { conform } from "./contract.js" // the seam has one home (#5)
 
 const NAME_RE = /^[a-z][a-z0-9_]*$/
 
@@ -154,6 +155,11 @@ function documentId(path) {
  * the database rather than in this process.
  */
 export function collections({ sql, kv }) {
+    // At WIRING, not at the first collection: "no engine at all" used to surface
+    // from `collectionMount(name)`, a different moment and a different stack from
+    // the mistake, and a `sql` that was not a function surfaced from inside
+    // `sqlEngine`. The registry answers both here, by name (contract.js).
+    conform("collections()", { sql, kv })
     const _mounts = new Map()
 
     return function collectionMount(name) {

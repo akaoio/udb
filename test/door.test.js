@@ -3,6 +3,7 @@ import assert from "node:assert/strict"
 import { createDB, collections, statics } from "../src/index.js"
 import { memoryStore } from "./stubs.js"
 import { sqlite, diskRoot, diskDriver, contentHash, encode } from "./real.js"
+import { PORTS, NEEDS, conform } from "../src/contract.js"
 
 // The door wired to REAL parts wherever a real part exists dependency-free:
 // statics on a real filesystem with a real digest, the browser collection
@@ -143,4 +144,38 @@ test("wipe clears the door's stores; ready settles", async () => {
     await DB.wipe()
     assert.equal(await DB.get("lives").get("x").once(), undefined)
     assert.equal(lives._data.size, 0)
+})
+
+test("the port registry is the one home: every port a door needs is declared", () => {
+    // Self-consistency rather than a copy of the list: this goes red the day a
+    // door asks for a port nobody declared, which is the shape a second home
+    // would arrive in.
+    for (const [who, needs] of Object.entries(NEEDS)) {
+        for (const name of [...(needs.required ?? []), ...(needs.oneOf ?? []).flat()]) {
+            assert.ok(PORTS[name], `${who} needs a port "${name}" that PORTS does not declare`)
+            assert.ok(PORTS[name].serves, `port "${name}" does not say what capability it serves`)
+            assert.ok(PORTS[name].by, `port "${name}" does not say WHO implements it — that is the whole question the registry exists to answer`)
+        }
+        for (const name of Object.keys(needs.as ?? {})) assert.ok(PORTS[name], `${who} renames a port "${name}" that PORTS does not declare`)
+    }
+})
+
+test("a door the registry does not know is refused — the seam cannot grow a second home", () => {
+    assert.throws(() => conform("someOtherDoor()", {}), /does not know that door/)
+})
+
+test("collections() with NO engine is refused AT WIRING, not at the first collection", () => {
+    // It used to surface from `collectionMount(name)` — a different moment and a
+    // different stack from the mistake, and only if a collection was ever asked
+    // for. The message still says which engine to inject and that the choice is
+    // what decides.
+    assert.throws(() => collections({}), /needs one of sql \(.*\) or kv \(/)
+})
+
+test("collections() with an engine of the wrong SHAPE is refused by name, at wiring", () => {
+    // Before the registry this door checked nothing at all: a `sql` that was not
+    // a function reached `sqlEngine` and threw `sql is not a function` from
+    // inside this package, with the cause in the host's wiring.
+    assert.throws(() => collections({ sql: "sqlite.db" }), /needs sql to be a function/)
+    assert.throws(() => collections({ kv: {} }), /needs kv to be a function/)
 })
