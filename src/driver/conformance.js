@@ -80,7 +80,12 @@ export async function checkDriver(driver, { at = ["udb-conformance"] } = {}) {
 
         // ── remove takes the subtree with it ────────────────────────────────
         await driver.remove(at)
-        const afterwards = await driver.readBytes(nested).catch(() => null)
+        let afterwards = null
+        try {
+            afterwards = await driver.readBytes(nested)
+        } catch {
+            afterwards = null // a driver that throws on a miss is already reported above
+        }
         check(afterwards === null || afterwards === undefined || afterwards.length === 0, "remove() must take the whole subtree, not just the top entry")
     } finally {
         // `await` rather than `.catch()` on the return value: a port method may
