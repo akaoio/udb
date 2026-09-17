@@ -205,3 +205,21 @@ test("which realm this is, is ANSWERED by this package — a host should never w
     assert.deepEqual(detectEnvironment({ location: { origin: "https://example.test" }, self: {} }), { NODE: false, BROWSER: true })
     assert.deepEqual(detectEnvironment({}), { NODE: false, BROWSER: false }, "neither is an honest answer — some scope is neither, and guessing one would be a claim nobody measured")
 })
+
+test("an OPTIONAL port may be absent, and is CHECKED when it is there", async () => {
+    // The registry could not SAY this until `fs()` existed, and the gap was found
+    // from OUTSIDE: a host walking `NEEDS` saw every optional port it injected as a
+    // port answered into the void, because only `required` was written down. A
+    // registry that describes the doors it had the day it was written is the drift a
+    // registry exists to prevent — so it now says `optional`, and `npm run ports`
+    // prints those too, because a printout narrower than its table is the same
+    // defect one layer out.
+    const { conform } = await import("../src/contract.js")
+    const driver = { scope: "s", readBytes: () => {}, writeBytes: () => {}, remove: () => {}, entries: () => {} }
+    assert.doesNotThrow(() => conform("fs()", { driver }), "absent is allowed")
+    assert.doesNotThrow(() => conform("fs()", { driver, parse: () => {}, tier: () => {} }), "present and right is allowed")
+    // "Optional" means absent is allowed — never that a wrong shape is. A host that
+    // passes a string where a function belongs must hear about it at wiring rather
+    // than from inside an engine three calls later.
+    assert.throws(() => conform("fs()", { driver, parse: "not a function" }), /parse/)
+})

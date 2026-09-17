@@ -19,6 +19,10 @@ console.log("\nDoors — which ports each one needs at wiring:\n")
 for (const [door, needs] of Object.entries(NEEDS)) {
     const required = (needs.required ?? []).map((name) => needs.as?.[name] ?? name)
     const either = (needs.oneOf ?? []).map((group) => `one of ${group.join(" / ")}`)
-    console.log(`  ${door}${needs.realm ? ` [${needs.realm} only]` : ""}  ${[...required, ...either].join(", ")}`)
+    // Optional ports are printed too, and marked. A printout narrower than the
+    // table it prints is a declaration narrower than its own law: a host reading
+    // this to learn the seam would conclude those ports do not exist.
+    const maybe = (needs.optional ?? []).map((name) => `${needs.as?.[name] ?? name}?`)
+    console.log(`  ${door}${needs.realm ? ` [${needs.realm} only]` : ""}  ${[...required, ...either, ...maybe].join(", ")}`)
 }
 console.log("")
