@@ -4,6 +4,7 @@ import { createDB, collections, statics } from "../src/index.js"
 import { memoryStore } from "./stubs.js"
 import { sqlite, diskRoot, diskDriver, contentHash, encode } from "./real.js"
 import { PORTS, NEEDS, conform } from "../src/contract.js"
+import { detectEnvironment } from "../src/env.js"
 
 // The door wired to REAL parts wherever a real part exists dependency-free:
 // statics on a real filesystem with a real digest, the browser collection
@@ -190,4 +191,17 @@ test("a door may say which realm it belongs to, and a host can ASK", () => {
         if (!needs.realm) continue
         assert.ok(["node", "browser"].includes(needs.realm), `${door} claims realm "${needs.realm}", which is not one this package knows`)
     }
+})
+
+test("which realm this is, is ANSWERED by this package — a host should never write it twice", () => {
+    // akao held these same two conditions, byte for byte, in its own
+    // `Utils/environment.js`: same function name, same md5. A host that needs the
+    // answer and finds no export has one option left, and it is the wrong one.
+    assert.equal(typeof detectEnvironment, "function")
+    assert.deepEqual(detectEnvironment({ process: { versions: { node: "24" } } }), { NODE: true, BROWSER: false })
+    assert.deepEqual(detectEnvironment({ location: { origin: "https://example.test" } }), { NODE: false, BROWSER: true })
+    // A worker: an origin and no process, which is the case the naive check gets
+    // wrong by asking for `window`.
+    assert.deepEqual(detectEnvironment({ location: { origin: "https://example.test" }, self: {} }), { NODE: false, BROWSER: true })
+    assert.deepEqual(detectEnvironment({}), { NODE: false, BROWSER: false }, "neither is an honest answer — some scope is neither, and guessing one would be a claim nobody measured")
 })
