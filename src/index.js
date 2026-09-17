@@ -165,6 +165,8 @@ export { driver, checkDriver, checkFileDoor, supportsOPFS } from "./driver/index
 // in `statics/conformance.js` and shipped nothing for years of it. `checkLoad` is
 // exported beside it so a host can run the law over whichever body it uses.
 export { loader } from "./loader.js"
+// The DOOR over the store: every verb a host was writing over the byte driver.
+export { fs } from "./fs.js"
 // Tree verbs over the driver port, the family `walk` was already in.
 export { copyTree, matches, find } from "./tree.js"
 // The chain-store two of the ports want, over that same driver — and the kit

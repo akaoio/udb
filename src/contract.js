@@ -137,6 +137,11 @@ export const NEEDS = {
     // the ladder cannot answer for a host — and a default would answer it wrong
     // for whichever realm was not thought about.
     "loader()": { required: ["driver", "urlOf"] },
+    // The door needs only the store: an `origin` or `urlOf` is what gives it a
+    // network tier, `parse`/`stringify` are what give it a vocabulary, and a host
+    // that passes neither gets a door over its own store that speaks JSON — which
+    // is a complete, useful door and not a half-wired one.
+    "fs()": { required: ["driver"] },
     // `realm` is how a door says it cannot exist everywhere. Replication
     // supervises a process, so a browser realm wires nothing for it — and a host
     // that serves both realms must be able to ASK which doors apply to the one it
