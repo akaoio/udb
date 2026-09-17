@@ -149,8 +149,25 @@ export function chainStore({ driver, root = [] } = {}) {
             once: () => assemble(path),
             put: async (value) => {
                 if (!path.length) throw new Error("kv: put() needs a path — the root of a store is not a document")
-                if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("kv: a chain-store holds documents (plain objects)")
-                await driver.writeBytes(fileOf(path), encoder.encode(JSON.stringify(value)))
+                // A store holds WHAT THE DOOR HANDS IT. The `lives` mount passes
+                // the value through untouched, and hosts write scalars there — a
+                // cursor, a count, a flag. Refusing anything but a plain object
+                // was this store applying the COLLECTIONS mount's rule (which
+                // enforces it itself, where it belongs) one layer too low, and it
+                // broke a host's discovery thread on a single number.
+                //
+                // `undefined` is the one refusal, because it cannot round-trip:
+                // it is how this store spells "there is nothing here", so writing
+                // it would mean storing an absence.
+                if (value === undefined) throw new Error("kv: put(undefined) is not a write — `undefined` is how a read says there is nothing at a path, so storing it would store an absence. del() is how something goes away.")
+                let body
+                try {
+                    body = JSON.stringify(value)
+                } catch (error) {
+                    throw new Error(`kv: this value cannot be written — a chain-store holds what JSON can carry (${error.message})`)
+                }
+                if (body === undefined) throw new Error(`kv: a ${typeof value} cannot be written — a chain-store holds what JSON can carry`)
+                await driver.writeBytes(fileOf(path), encoder.encode(body))
                 await announce(path, value)
                 return value
             },
